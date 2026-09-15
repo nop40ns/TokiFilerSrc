@@ -1,0 +1,1316 @@
+﻿<UserControl
+    xmlns="https://github.com/avaloniaui"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+    xmlns:mc="http://openxmlformats.org"
+
+    xmlns:mvm="clr-namespace:ExplorerKit.MVVM.ViewModels;assembly=ExplorerKit.MVVM"
+
+    xmlns:t_vm="clr-namespace:TokiFiler.ViewModel;assembly=TokiFiler"
+
+    d:DesignWidth="800" d:DesignHeight="450"
+
+    x:Class="TokiFiler.Avalonia.UserControls.FileView">
+
+    <UserControl.Resources>
+        <ResourceDictionary>
+
+
+
+
+            <DataTemplate x:Key="DriveButtonTemplate" x:DataType="mvm:DriveItemViewModel">
+                <RadioButton
+                    CommandParameter="{Binding}"
+                    GroupName="MyDriveGroup"
+                    IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                    >
+                    <RadioButton.Command>
+                        <Binding Path="((t_vm:FileViewModel)$parent[UserControl].DataContext).DriveSelectedCommand" />
+                    </RadioButton.Command>
+                    <RadioButton.CommandParameter>
+                        <Binding />
+                    </RadioButton.CommandParameter>
+                    <RadioButton.Template>
+                        <ControlTemplate TargetType="RadioButton">
+                            <!--  ここで外枠と背景色を定義  -->
+                            <Border
+                                x:Name="Bd"
+                                Padding="4,2"
+                                Background="Transparent"
+                                BorderBrush="Transparent"
+                                BorderThickness="1"
+                                CornerRadius="2">
+                                <!--  中身（下のGrid）をここに表示  -->
+                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                            </Border>
+
+                            <ControlTemplate.Triggers>
+                                <!--  マウスオーバー時の色  -->
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{Binding ViewColor.View.MouseOver.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+                                    <!--  ほんのり白く  -->
+                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#44FFFFFF" />
+
+                                </Trigger>
+                                <!--  選択中（IsChecked=True）の色  -->
+                                <Trigger Property="IsChecked" Value="True">
+                                    <Setter TargetName="Bd" Property="Background" Value="{Binding ViewColor.View.Selected.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#88FFFFFF" />
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </RadioButton.Template>
+
+                    <!--  元々のコンテンツ  -->
+                    <Grid Margin="4,0" VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+
+                        <Image
+                            Grid.Column="0"
+                            Width="20"
+                            Height="20"
+                            Margin="0,0,4,0"
+                            Source="{Binding DriveIcon.IconImage}" />
+                        <TextBlock
+                            Grid.Column="1"
+                            FontSize="20"
+                            Text="{Binding DriveLetter}">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <!--  デフォルトの色（現在のバインド）  -->
+                                    <Setter Property="Foreground" Value="{Binding ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+
+                                    <Style.Triggers>
+                                        <!--  RadioButtonが選択されている時の色  -->
+                                        <DataTrigger Binding="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=RadioButton}}" Value="True">
+                                            <Setter Property="Foreground" Value="{Binding ViewColor.View.Selected.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+                                        </DataTrigger>
+
+                                        <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=RadioButton}}" Value="True">
+                                            <Setter Property="Foreground" Value="{Binding ViewColor.View.MouseOver.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                </RadioButton>
+            </DataTemplate>
+
+
+        </ResourceDictionary>
+
+    </UserControl.Resources>
+
+
+    <Border>
+        <Border.Style>
+            <Style TargetType="Border">
+                <Setter Property="Background" Value="DarkGray" />
+
+                <Style.Triggers>
+                    <DataTrigger Binding="{Binding IsActive}" Value="True">
+                        <Setter Property="Background" Value="{Binding ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+                    </DataTrigger>
+                </Style.Triggers>
+            </Style>
+        </Border.Style>
+
+
+        <Grid
+            x:Name="MainGrid"
+            Margin="3"
+            Background="{Binding ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}"
+            PreviewKeyDown="MainGrid_PreviewKeyDown"
+            PreviewMouseDown="MainGrid_PreviewMouseDown"
+            PreviewTextInput="MainGrid_PreviewTextInput">
+
+
+            <Grid.RowDefinitions>
+                <RowDefinition Height="auto" />
+                <RowDefinition Height="auto" />
+                <RowDefinition Height="auto" />
+                <RowDefinition Height="*" />
+                <RowDefinition Height="auto" />
+
+            </Grid.RowDefinitions>
+            <Grid Grid.Row="0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="auto" />
+                    <ColumnDefinition Width="auto" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="auto" />
+                    <ColumnDefinition Width="auto" />
+                    <ColumnDefinition Width="auto" />
+                </Grid.ColumnDefinitions>
+                <Button
+                    x:Name="BackButton"
+                    Grid.Column="0"
+                    Width="24"
+                    VerticalAlignment="Center"
+                    Command="{Binding Explorer.BackCommand}"
+                    DockPanel.Dock="Left"
+                    IsEnabled="{Binding Explorer.CanGoBack}"
+                    MouseRightButtonUp="BackButton_MouseRightButtonUp"
+                    Style="{StaticResource NavigateButton}"
+                    ToolTip="{Binding Services.Localize.LocalizeAddressBar.Back}"
+                    Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+
+                    <TextBlock
+                        Margin="0,0,0,0"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource NavigateButtonText}"
+                        Text="&#xe5c4;" />
+
+                </Button>
+                <Popup
+                    x:Name="BackHistoryPopup"
+                    AllowsTransparency="True"
+                    Placement="Bottom"
+                    PlacementTarget="{Binding ElementName=BackButton}"
+                    StaysOpen="False">
+                    <Border Style="{StaticResource ModernPopupBorderStyle}">
+                        <ListBox
+                            x:Name="BackHistoryList"
+                            Width="540"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            FontSize=" 18"
+                            ItemContainerStyle="{StaticResource ModernHistoryItemStyle}"
+                            ItemsSource="{Binding Explorer.BackHistory}"
+                            PreviewMouseLeftButtonUp="BackHistoryList_PreviewMouseLeftButtonUp" />
+                    </Border>
+                </Popup>
+
+
+                <Button
+                    x:Name="ForwardButton"
+                    Grid.Column="1"
+                    Command="{Binding Explorer.ForwardCommand}"
+                    DockPanel.Dock="Left"
+                    IsEnabled="{Binding Explorer.CanGoForward}"
+                    MouseRightButtonUp="ForwardButton_MouseRightButtonUp"
+                    Style="{StaticResource NavigateButton}"
+                    ToolTip="{Binding Services.Localize.LocalizeAddressBar.Forward}"
+                    Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+
+                    <TextBlock
+                        Margin="0,0,0,0"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource NavigateButtonText}"
+                        Text="&#xe5c8;" />
+
+                </Button>
+
+
+                <Popup
+                    x:Name="ForwardHistoryPopup"
+                    AllowsTransparency="True"
+                    Placement="Bottom"
+                    PlacementTarget="{Binding ElementName=ForwardButton}"
+                    StaysOpen="False">
+                    <Border Style="{StaticResource ModernPopupBorderStyle}">
+                        <ListBox
+                            x:Name="ForwardHistoryList"
+                            Width="540"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            FontSize=" 18"
+                            ItemContainerStyle="{StaticResource ModernHistoryItemStyle}"
+                            ItemsSource="{Binding Explorer.ForwardHistory}"
+                            PreviewMouseLeftButtonUp="ForwardHistoryList_PreviewMouseLeftButtonUp" />
+                    </Border>
+                </Popup>
+
+
+                <local:AddressBarCtrl
+                    x:Name="AddressBar"
+                    Grid.Column="2"
+                    HorizontalAlignment="Stretch"
+                    VerticalAlignment="Center"
+                    Background="Transparent"
+                    FontSize="24"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                    FullPath="{Binding Explorer.CurrentPath, Mode=TwoWay}"
+                    NavigateCommand="{Binding Explorer.NavigateToCommand}"
+                    SearchStart="AddressBar_SearchStart"
+                    ViewColor="{Binding Services.ViewColor}" />
+
+                <Grid Grid.Column="3" Visibility="{Binding IsChecked, ElementName=ButtonFilter, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="auto" />
+                        <ColumnDefinition Width="auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="auto" />
+
+                    </Grid.ColumnDefinitions>
+                    <!--<syncfusion:SfTextBoxExt
+                    x:Name="TextBoxFilter"
+                    Grid.Column="0"
+                    Width="200"
+                    MinWidth="2"
+                    Padding="6,3"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Center"
+                    Background="Transparent"
+                    DockPanel.Dock="Right"
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                    GotFocus="TextBoxFilter_GotFocus"
+                    Text="{Binding Explorer.FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    TextAlignment="Left"
+                    Watermark="{Binding Services.Localize.LocalizeAddressBar.Filter}" />-->
+                    <TextBox
+                        x:Name="TextBoxFilter"
+                        Grid.Column="0"
+                        Width="200"
+                        MinWidth="2"
+                        Padding="6,3"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Background="Transparent"
+                        DockPanel.Dock="Right"
+                        FontSize="18"
+                        Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                        GotFocus="TextBoxFilter_GotFocus"
+                        Text="{Binding Explorer.FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        TextAlignment="Left"
+                        />
+
+                    <ToggleButton
+                        Grid.Column="1"
+                        Margin="4,0"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Content="&#xf750;"
+                        FontFamily="{StaticResource MaterialSymbols}"
+                        FontSize="24"
+                        Style="{StaticResource FlatToggleButtonStyle}"
+                        ToolTip="{Binding Services.Localize.LocalizeAddressBar.Regex}" />
+                    <ToggleButton
+                        Grid.Column="2"
+                        Margin="4,0"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Content="&#xeb83;"
+                        DockPanel.Dock="Right"
+                        FontFamily="{StaticResource MaterialSymbols}"
+                        FontSize="24"
+                        IsChecked="{Binding Explorer.IncludeFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                        Style="{StaticResource FlatToggleButtonStyle}"
+                        ToolTip="{Binding Services.Localize.LocalizeAddressBar.IsFolder}" />
+                </Grid>
+
+
+
+
+                <!--
+                <TextBox
+                x:Name="TextBoxFind"
+                Width="200"
+                MinWidth="200"
+                HorizontalAlignment="Right"
+                VerticalAlignment="Center"
+                DockPanel.Dock="Right"
+                FontSize="18"
+                Text="{Binding Explorer.FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                TextAlignment="Left" />
+                -->
+
+                <Button
+                    x:Name="ButtonFind"
+                    HorizontalAlignment="Right"
+                    Command="{Binding Explorer.CommandExec.FileFind}"
+                    CommandParameter="{Binding Explorer}"
+                    DockPanel.Dock="Right"
+                    Style="{StaticResource NavigateButton}"
+                    ToolTip="検索"
+                    Visibility="Collapsed">
+
+                    <TextBlock
+                        Margin="0,0,0,0"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource NavigateButtonText}"
+                        Text="&#xe8b6;"
+                        TextWrapping="WrapWithOverflow" />
+                </Button>
+
+
+
+                <ToggleButton
+                    x:Name="ButtonFilter"
+                    Grid.Column="4"
+                    Margin="4,0"
+                    HorizontalAlignment="Right"
+                    BorderThickness="0"
+                    Content="&#xef4f;"
+                    FontFamily="{StaticResource MaterialSymbols}"
+                    FontSize="24"
+                    FontWeight="Thin"
+                    Style="{StaticResource FlatToggleButtonStyle}"
+                    ToolTip="{Binding Services.Localize.LocalizeAddressBar.Filter}" />
+
+            </Grid>
+            <Grid Grid.Row="1">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="auto" />
+                    <ColumnDefinition Width="auto" />
+                </Grid.ColumnDefinitions>
+
+
+                <StackPanel Orientation="Horizontal">
+                    <Button
+                        x:Name="ButtonCreateNewFolder"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Command="{Binding Explorer.CommandExec.CreateNewFolder}"
+                        CommandParameter="{Binding Explorer}"
+                        Style="{StaticResource NavigateButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.CreateNewFolder}"
+                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateButtonText}"
+                            Text="&#xe2cc;" />
+
+                    </Button>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="24"
+                        Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                        Text="｜"
+                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                    <Button
+                        x:Name="ButtonCopyToClip"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Command="{Binding Explorer.CommandExec.ClipboardCopy}"
+                        CommandParameter="{Binding Explorer}"
+                        Style="{StaticResource NavigateButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ClipCopy}">
+                        <TextBlock
+                            Margin="0,0,0,0"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateButtonText}"
+                            Text="&#xe14d;" />
+                    </Button>
+
+                    <Button
+                        x:Name="ButtonCutToClip"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Command="{Binding Explorer.CommandExec.ClipboardCut}"
+                        CommandParameter="{Binding Explorer}"
+                        Style="{StaticResource NavigateButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ClipCut}">
+                        <TextBlock
+                            Margin="0,0,0,0"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateButtonText}"
+                            Text="&#xe14e;" />
+                    </Button>
+
+                    <Button
+                        x:Name="ButtonPaste"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Command="{Binding Explorer.CommandExec.ClipboardPaste}"
+                        CommandParameter="{Binding Explorer}"
+                        Style="{StaticResource NavigateButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ClipPaste}">
+                        <TextBlock
+                            Margin="0,0,0,0"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateButtonText}"
+                            Text="&#xe14f;" />
+                    </Button>
+
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="32"
+                        Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                        Text="｜" />
+
+
+                    <Button
+                        x:Name="ButtonCopyTo"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Command="{Binding Explorer.CommandExec.FileCopy}"
+                        CommandParameter="{Binding Explorer}"
+                        Style="{StaticResource NavigateButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.FileCopy}">
+                        <TextBlock
+                            Margin="0,0,0,0"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            FontWeight="Thin"
+                            Style="{StaticResource NavigateButtonText}"
+                            Text="&#xe173;" />
+                    </Button>
+
+
+                    <Button
+                        x:Name="ButtonMoveTo"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Command="{Binding Explorer.CommandExec.FileMove}"
+                        CommandParameter="{Binding Explorer}"
+                        Style="{StaticResource NavigateButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.FileMove}">
+                        <Grid>
+                            <TextBlock
+                                Margin="0,0,0,0"
+                                HorizontalAlignment="Left"
+                                VerticalAlignment="Center"
+                                FontSize="24"
+                                Style="{StaticResource NavigateButtonText}"
+                                Text="&#xe66d;" />
+                            <TextBlock
+                                Margin="10,0,0,0"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontSize="24"
+                                Style="{StaticResource NavigateButtonText}"
+                                Text="&#xe5c8;" />
+                        </Grid>
+
+
+
+                    </Button>
+
+                    <Button
+                        x:Name="ButtonRename"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Command="{Binding Explorer.CommandExec.Rename}"
+                        CommandParameter="{Binding Explorer}"
+                        Style="{StaticResource NavigateButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.FileRename}">
+
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateButtonText}"
+                            Text="&#xf73c;" />
+
+
+
+                    </Button>
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="32"
+                        Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                        Text="｜" />
+
+                    <Button
+                        x:Name="ButtonToTrash"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Command="{Binding Explorer.CommandExec.FileToTrashe}"
+                        CommandParameter="{Binding Explorer}"
+                        Style="{StaticResource NavigateButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.FileToTrash}">
+
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateButtonText}"
+                            Text="&#xe872;" />
+
+
+
+                    </Button>
+
+                    <Button
+                        x:Name="ButtonDelete"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Command="{Binding Explorer.CommandExec.FileDelete}"
+                        CommandParameter="{Binding Explorer}"
+                        Style="{StaticResource NavigateButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.FileDelete}">
+
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateButtonText}"
+                            Text="&#xe92b;" />
+
+
+
+                    </Button>
+
+                    <!--<TextBlock
+                    VerticalAlignment="Center"
+                    FontSize="32"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                    Text="｜"
+                    Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+
+
+                    -->
+                    <!--  プロパティ設定  -->
+                    <!--
+                    <Button
+                    x:Name="ButtonProperty"
+                    MinWidth="24"
+                    MinHeight="24"
+                    Command="{Binding Explorer.CommandExec.SetProperty}"
+                    CommandParameter="{Binding Explorer}"
+                    Style="{StaticResource NavigateButton}"
+                    ToolTip="{Binding Services.Localize.LocalizeToolBar.FileProperty}"
+                    Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+
+                    <TextBlock
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Center"
+                    Style="{StaticResource NavigateButtonText}"
+                    Text="&#xf741;" />
+
+                    </Button>-->
+
+
+
+
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="32"
+                        Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                        Text="｜"
+                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+
+                    <!--  新しいタブ  -->
+                    <Button
+                        x:Name="ButtonNewTab"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Command="{Binding Explorer.CommandExec.NewTab}"
+                        CommandParameter="{Binding Explorer}"
+                        Style="{StaticResource NavigateButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.AddNewTab}"
+                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateButtonText}"
+                            Text="&#xf741;" />
+
+                    </Button>
+
+
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="32"
+                        Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                        Text="｜"
+                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+
+                    <RadioButton
+                        x:Name="BtnDetailStyle"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Click="BtnDetailStyle_Click"
+                        GroupName="ListStyle"
+                        Style="{StaticResource NavigateRadioButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ViewDetail}"
+                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateRadioButtonText}"
+                            Text="&#xe9b9;" />
+
+                    </RadioButton>
+
+
+                    <RadioButton
+                        x:Name="BtnListThumbnail"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Click="BtnListThumbnail_Click"
+                        GroupName="ListStyle"
+                        Style="{StaticResource NavigateRadioButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ViewThumbnail}">
+
+
+
+
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateRadioButtonText}"
+                            Text="&#xf383;" />
+
+                    </RadioButton>
+
+
+                    <RadioButton
+                        x:Name="BtnListList"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Click="BtnListList_Click"
+                        GroupName="ListStyle"
+                        Style="{StaticResource NavigateRadioButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ViewIcon}">
+
+
+
+
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateRadioButtonText}"
+                            Text="&#xeb75;" />
+
+                    </RadioButton>
+
+
+                    <RadioButton
+                        x:Name="btnListContent"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Click="BtnListContent_Click"
+                        GroupName="ListStyle"
+                        Style="{StaticResource NavigateRadioButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ViewContent}">
+
+
+
+
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateRadioButtonText}"
+                            Text="&#xe99c;" />
+
+                    </RadioButton>
+
+
+                    <TextBlock
+                        VerticalAlignment="Center"
+                        FontSize="32"
+                        Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                        Text="｜"
+                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+
+                    <ToggleButton
+                        x:Name="ButtonIsFolderTree"
+                        HorizontalAlignment="Right"
+                        VerticalAlignment="Center"
+                        Content="&#xf717;"
+                        FontFamily="{StaticResource MaterialSymbols}"
+                        FontSize="24"
+                        IsChecked="{Binding IsFolderTree}"
+                        Style="{StaticResource FlatToggleButtonStyle}"
+                        ToolTip="{Binding Services.Localize.LocalizeAddressBar.Regex}" />
+
+                    <Button
+                        x:Name="ButtonRefresh"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Click="ButtonRefresh_Click"
+                        Style="{StaticResource NavigateButton}"
+                        ToolTip="{Binding Services.Localize.LocalizeToolBar.Refresh}"
+                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Style="{StaticResource NavigateButtonText}"
+                            Text="&#xe5d5;" />
+
+                    </Button>
+
+                </StackPanel>
+
+
+
+
+
+            </Grid>
+
+
+
+            <ToolBar
+                x:Name="DriveToolbar"
+                Grid.Row="2"
+                Background="{Binding Services.ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}"
+                ItemTemplate="{StaticResource DriveButtonTemplate}"
+                ItemsSource="{Binding DriveList}"
+                Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+
+            <Grid Grid.Row="3">
+
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition MinWidth="0">
+
+                        <ColumnDefinition.Style>
+                            <Style TargetType="ColumnDefinition">
+                                <Setter Property="Width" Value="{Binding Explorer.FolderTreeWidth, Mode=TwoWay, Converter={StaticResource GridLengthConverter}}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSearch}" Value="True">
+                                        <Setter Property="Width" Value="0" />
+                                        <Setter Property="MinWidth" Value="0" />
+                                    </DataTrigger>
+
+                                    <DataTrigger Binding="{Binding IsFolderTree}" Value="False">
+                                        <Setter Property="Width" Value="0" />
+                                        <Setter Property="MinWidth" Value="0" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ColumnDefinition.Style>
+
+                    </ColumnDefinition>
+                    <ColumnDefinition>
+
+                        <ColumnDefinition.Style>
+                            <Style TargetType="ColumnDefinition">
+                                <Setter Property="Width" Value="20" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSearch}" Value="True">
+                                        <Setter Property="Width" Value="0" />
+                                        <Setter Property="MinWidth" Value="0" />
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding IsFolderTree}" Value="False">
+                                        <Setter Property="Width" Value="0" />
+                                        <Setter Property="MinWidth" Value="0" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ColumnDefinition.Style>
+
+                    </ColumnDefinition>
+
+
+                    <ColumnDefinition Width="*" />
+                </Grid.ColumnDefinitions>
+
+                <local:FolderTreeView Grid.Column="0" Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+
+                <GridSplitter
+                    Grid.Column="1"
+                    HorizontalAlignment="Stretch"
+                    Style="{StaticResource HeadderGridSplitter}"
+                    Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+
+
+                <Grid Grid.Column="2">
+
+                    <Grid.Style>
+                        <Style TargetType="Grid">
+                            <Setter Property="Grid.Column" Value="3" />
+                            <Style.Triggers>
+
+                                <DataTrigger Binding="{Binding IsFolderTree}" Value="true">
+                                    <Setter Property="Grid.Column" Value="1" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Grid.Style>
+
+
+                    <Grid.RowDefinitions>
+
+                        <RowDefinition Height="30" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <ScrollViewer
+                        x:Name="HeaderScroll"
+                        Grid.Row="0"
+                        HorizontalScrollBarVisibility="Hidden"
+                        VerticalScrollBarVisibility="Disabled">
+                        <!--  ★ ヘッダー行（ListView の GridViewHeaderRowPresenter の代わり）  -->
+                        <Grid
+                            x:Name="HeaderGrid"
+                            Margin="10,0,0,0"
+                            Background="{Binding Services.ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}">
+
+
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="{Binding ElementName=LV, Path=DataContext.NameColumnWidth, Converter={StaticResource GridLengthConverter}, Mode=TwoWay}" MinWidth="160" />
+
+
+                                <ColumnDefinition Width="{Binding ElementName=LV, Path=DataContext.DateColumnWidth, Converter={StaticResource GridLengthConverter}, Mode=TwoWay}" MinWidth="80" />
+                                <ColumnDefinition Width="{Binding ElementName=LV, Path=DataContext.TypeColumnWidth, Converter={StaticResource GridLengthConverter}, Mode=TwoWay}" MinWidth="80" />
+                                <ColumnDefinition Width="{Binding ElementName=LV, Path=DataContext.SizeColumnWidth, Converter={StaticResource GridLengthConverter}, Mode=TwoWay}" MinWidth="80" />
+                                <ColumnDefinition x:Name="HeaderSpacer" Width="0" />
+                            </Grid.ColumnDefinitions>
+
+
+                            <!--  名前列  -->
+                            <Button
+                                Grid.Column="1"
+                                Command="{Binding Explorer.SortCommand}"
+                                CommandParameter="FileName"
+                                Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                                Style="{StaticResource HeaderButtonStyle}">
+
+                                <Button.Content>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0" Text="{Binding Services.Localize.LocalizeFileHeader.Name}" />
+
+
+                                        <Grid Grid.Column="1">
+                                            <TextBlock>
+                                                <TextBlock.Text>
+
+                                                    <MultiBinding Converter="{StaticResource SortArrowConverter}" ConverterParameter="FileName">
+                                                        <!--  固定のヘッダー文字  -->
+                                                        <Binding Source="" />
+
+                                                        <!--  ソート状態  -->
+                                                        <Binding Path="Explorer.SortColumn" />
+                                                        <Binding Path="Explorer.SortAscending" />
+                                                    </MultiBinding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+
+                                        </Grid>
+
+                                    </Grid>
+                                </Button.Content>
+                            </Button>
+
+
+
+                            <GridSplitter Grid.Column="1" Style="{StaticResource HeadderGridSplitter}">
+                                <i:Interaction.Behaviors>
+                                    <bv:GridSplitterDragDeltaBehavior
+                                        ColumnIndex="1"
+                                        DragDeltaCommand="{Binding UpdateColumnWidthCommand}"
+                                        TargetListBox="{Binding ElementName=LV}" />
+                                </i:Interaction.Behaviors>
+                            </GridSplitter>
+
+                            <!--  更新日時  -->
+
+
+                            <Button
+                                Grid.Column="2"
+                                Command="{Binding Explorer.SortCommand}"
+                                CommandParameter="LastWriteDateTime"
+                                Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                                Style="{StaticResource HeaderButtonStyle}">
+                                <Button.Content>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0" Text="{Binding Services.Localize.LocalizeFileHeader.UpdateDate}" />
+
+
+                                        <Grid Grid.Column="1">
+                                            <TextBlock>
+                                                <TextBlock.Text>
+
+                                                    <MultiBinding Converter="{StaticResource SortArrowConverter}" ConverterParameter="LastWriteDateTime">
+                                                        <!--  固定のヘッダー文字  -->
+                                                        <Binding Source="" />
+
+                                                        <!--  ソート状態  -->
+                                                        <Binding Path="Explorer.SortColumn" />
+                                                        <Binding Path="Explorer.SortAscending" />
+                                                    </MultiBinding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+
+                                        </Grid>
+
+                                    </Grid>
+                                </Button.Content>
+                            </Button>
+
+                            <GridSplitter Grid.Column="2" Style="{StaticResource HeadderGridSplitter}">
+
+                                <i:Interaction.Behaviors>
+                                    <bv:GridSplitterDragDeltaBehavior
+                                        ColumnIndex="2"
+                                        DragDeltaCommand="{Binding UpdateColumnWidthCommand}"
+                                        TargetListBox="{Binding ElementName=LV}" />
+                                </i:Interaction.Behaviors>
+                            </GridSplitter>
+
+                            <!--  種類  -->
+
+                            <Button
+                                Grid.Column="3"
+                                VerticalAlignment="Center"
+                                Command="{Binding Explorer.SortCommand}"
+                                CommandParameter="FileType"
+                                Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                                Style="{StaticResource HeaderButtonStyle}">
+                                <Button.Content>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0" Text="{Binding Services.Localize.LocalizeFileHeader.FileType}" />
+
+
+                                        <Grid Grid.Column="1">
+                                            <TextBlock>
+                                                <TextBlock.Text>
+
+                                                    <MultiBinding Converter="{StaticResource SortArrowConverter}" ConverterParameter="FileType">
+                                                        <!--  固定のヘッダー文字  -->
+                                                        <Binding Source="" />
+
+                                                        <!--  ソート状態  -->
+                                                        <Binding Path="Explorer.SortColumn" />
+                                                        <Binding Path="Explorer.SortAscending" />
+                                                    </MultiBinding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+
+                                        </Grid>
+
+                                    </Grid>
+                                </Button.Content>
+                            </Button>
+
+                            <GridSplitter Grid.Column="3" Style="{StaticResource HeadderGridSplitter}">
+
+                                <i:Interaction.Behaviors>
+                                    <bv:GridSplitterDragDeltaBehavior
+                                        ColumnIndex="3"
+                                        DragDeltaCommand="{Binding UpdateColumnWidthCommand}"
+                                        TargetListBox="{Binding ElementName=LV}" />
+                                </i:Interaction.Behaviors>
+                            </GridSplitter>
+
+                            <!--  サイズ  -->
+
+
+                            <Button
+                                Grid.Column="4"
+                                VerticalAlignment="Center"
+                                Command="{Binding Explorer.SortCommand}"
+                                CommandParameter="FileSize"
+                                Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                                Style="{StaticResource HeaderButtonStyle}">
+                                <Button.Content>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+
+                                        <TextBlock Grid.Column="0" Text="{Binding Services.Localize.LocalizeFileHeader.Size}" />
+
+
+                                        <Grid Grid.Column="1">
+                                            <TextBlock>
+                                                <TextBlock.Text>
+
+                                                    <MultiBinding Converter="{StaticResource SortArrowConverter}" ConverterParameter="FileSize">
+                                                        <!--  固定のヘッダー文字  -->
+                                                        <Binding Source="" />
+
+                                                        <!--  ソート状態  -->
+                                                        <Binding Path="Explorer.SortColumn" />
+                                                        <Binding Path="Explorer.SortAscending" />
+                                                    </MultiBinding>
+                                                </TextBlock.Text>
+                                            </TextBlock>
+
+                                        </Grid>
+
+                                    </Grid>
+                                </Button.Content>
+                            </Button>
+
+                            <GridSplitter Grid.Column="4" Style="{StaticResource HeadderGridSplitter}">
+
+                                <i:Interaction.Behaviors>
+                                    <bv:GridSplitterDragDeltaBehavior
+                                        ColumnIndex="4"
+                                        DragDeltaCommand="{Binding UpdateColumnWidthCommand}"
+                                        TargetListBox="{Binding ElementName=LV}" />
+                                    <!--  修正例  -->
+
+
+                                </i:Interaction.Behaviors>
+                            </GridSplitter>
+                        </Grid>
+                    </ScrollViewer>
+
+                    <ListBox
+                        x:Name="LV"
+                        Grid.Row="2"
+                        Padding="20,0,0,0"
+                        bv:TiltScrollBehavior.EnableTiltScroll="True"
+                        AllowDrop="True"
+                        Background="Transparent"
+                        FontSize="18"
+                        GotFocus="LV_GotFocus"
+                        IsSynchronizedWithCurrentItem="False"
+                        ItemsSource="{Binding Explorer.FileList}"
+                        PreviewDragOver="LV_PreviewDragOver"
+                        PreviewDrop="LV_PreviewDrop"
+                        PreviewMouseDown="LV_PreviewMouseDown"
+                        PreviewMouseMove="LV_PreviewMouseMove"
+                        PreviewMouseUp="LV_PreviewMouseUp"
+                        ScrollViewer.CanContentScroll="True"
+                        ScrollViewer.ScrollChanged="LV_ScrollChanged"
+                        SelectedIndex="{Binding Explorer.SelectedIndex, Mode=TwoWay}"
+                        SelectedItem="{Binding Explorer.SelectedItem, Mode=TwoWay}"
+                        SelectionChanged="LV_SelectionChanged"
+                        SelectionMode="Extended"
+                        VirtualizingPanel.IsVirtualizing="True"
+                        VirtualizingPanel.ScrollUnit="Item"
+                        VirtualizingPanel.VirtualizationMode="Recycling"
+
+                        >
+
+
+                        <ListBox.Style>
+                            <Style TargetType="{x:Type ListBox}">
+                                <!--  =======================================================  -->
+                                <!--  1. デフォルトの状態（例：詳細表示 Detail）  -->
+                                <!--  =======================================================  -->
+                                <Setter Property="ItemsPanel">
+                                    <Setter.Value>
+                                        <ItemsPanelTemplate>
+                                            <!--  詳細表示は標準の縦並び（仮想化が効く）  -->
+                                            <VirtualizingStackPanel Width="auto" HorizontalAlignment="Left" />
+                                        </ItemsPanelTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Setter Property="ItemTemplate" Value="{DynamicResource FileDetailTemplate}" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding Explorer.ListType.ViewType}" Value="Thumbnail">
+                                        <Setter Property="ItemsPanel">
+                                            <Setter.Value>
+                                                <ItemsPanelTemplate>
+                                                    <!--  詳細表示は標準の縦並び（仮想化が効く）  -->
+                                                    <vwp:VirtualizingWrapPanel />
+                                                </ItemsPanelTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Setter Property="ItemTemplate" Value="{DynamicResource FileThumbnailTemplate}" />
+                                    </DataTrigger>
+
+                                    <DataTrigger Binding="{Binding Explorer.ListType.ViewType}" Value="Icon">
+                                        <Setter Property="ItemsPanel">
+                                            <Setter.Value>
+                                                <ItemsPanelTemplate>
+                                                    <!--  詳細表示は標準の縦並び（仮想化が効く）  -->
+                                                    <vwp:VirtualizingWrapPanel />
+                                                </ItemsPanelTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Setter Property="ItemTemplate" Value="{DynamicResource FileLargeIconTemplate}" />
+                                    </DataTrigger>
+
+                                    <DataTrigger Binding="{Binding Explorer.ListType.ViewType}" Value="Content">
+                                        <Setter Property="ItemsPanel">
+                                            <Setter.Value>
+                                                <ItemsPanelTemplate>
+                                                    <!--  詳細表示は標準の縦並び（仮想化が効く）  -->
+                                                    <VirtualizingStackPanel Width="auto" HorizontalAlignment="Left" />
+                                                </ItemsPanelTemplate>
+                                            </Setter.Value>
+                                        </Setter>
+                                        <Setter Property="ItemTemplate" Value="{DynamicResource FileContantTemplate}" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </ListBox.Style>
+
+
+
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+
+
+                                <Setter Property="Padding" Value="0" />
+                                <Setter Property="bv:ListViewItemClickBehavior.EnableCheckToggle" Value="True" />
+                                <Setter Property="behavior:FileColorBehavior.AutoColor" Value="True" />
+
+
+                                <Setter Property="TextBlock.TextDecorations" Value="{Binding RelativeSource={RelativeSource Self}, Path=(TextBlock.TextDecorations)}" />
+
+
+                                <!--<Setter Property="Foreground" Value="{Binding ViewColor.View.File.Foreground, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource HexFileColorToColorConverter}}" />-->
+
+                                <!--<Setter Property="FontStyle" Value="Italic"/>-->
+
+                                <Setter Property="HorizontalContentAlignment" Value="Left" />
+
+                                <Setter Property="BorderBrush" Value="Transparent" />
+                                <Setter Property="BorderThickness" Value="0" />
+                                <Setter Property="IsSelected" Value="{Binding Model.IsChecked, Mode=TwoWay}" />
+
+                                <EventSetter Event="MouseDoubleClick" Handler="OnItemDoubleClick" />
+                                <EventSetter Event="PreviewMouseDown" Handler="ListBoxItem_PreviewMouseDown" />
+
+                                <EventSetter Event="KeyDown" Handler="OnItemKeyDown" />
+
+                                <EventSetter Event="MouseRightButtonUp" Handler="OnItemMouseRightButtonUp" />
+
+
+                                <EventSetter Event="PreviewMouseDown" Handler="OnPreviewMouseButtonDown" />
+
+                                <Style.Triggers>
+
+
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <!--<Setter Property="Background" Value="{Binding ItemSelectedBackColor, Converter={StaticResource HexColorToBrushConverter}}" />
+
+                                        <Setter Property="Foreground" Value="{Binding ItemSelectedColor, Converter={StaticResource HexColorToBrushConverter}}" />-->
+                                        <Setter Property="BorderBrush" Value="Transparent" />
+                                        <Setter Property="BorderThickness" Value="0" />
+                                    </Trigger>
+
+
+
+                                </Style.Triggers>
+
+
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+
+
+
+
+
+                    </ListBox>
+                    <Popup
+                        x:Name="ErrorPopup"
+                        AllowsTransparency="True"
+                        IsOpen="{Binding Explorer.IsPopupOpen}"
+                        Placement="Center"
+                        StaysOpen="True">
+                        <Border
+                            Padding="20"
+                            Background="#CC000000"
+                            CornerRadius="8">
+                            <StackPanel>
+                                <TextBlock
+                                    FontSize="16"
+                                    Foreground="White"
+                                    Text="{Binding Explorer.PopupMessage}"
+                                    TextWrapping="Wrap" />
+
+                                <ToggleButton
+                                    Width="80"
+                                    HorizontalAlignment="Center"
+                                    Content="閉じる"
+                                    IsChecked="{Binding IsOpen, ElementName=ErrorPopup, Mode=TwoWay}" />
+                            </StackPanel>
+                        </Border>
+                    </Popup>
+
+
+                </Grid>
+
+            </Grid>
+
+            <local:TokiFilerContext x:Name="TokiFilerMenu" />
+
+            <local:PropertyChangePopup x:Name="Property_ChangePopup" />
+
+
+            <StackPanel
+                Grid.Row="4"
+                Background="{Binding Services.ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}"
+                Orientation="Horizontal">
+                <Label
+                    Content="&#xe873;"
+                    FontFamily="{StaticResource MaterialSymbols}"
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+
+                <Label
+                    Content="{Binding Explorer.CheckedItemCount}"
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+                <Label
+                    Content="/"
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+
+                <Label
+                    Content="{Binding Explorer.CurrentItemCount}"
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+
+                <Label
+                    VerticalAlignment="Stretch"
+                    Content=" "
+                    FontSize="18"
+                    Foreground="LightGray" />
+                <Separator Foreground="Gray" />
+                <Label
+                    Content="&#xe6b1;"
+                    FontFamily="{StaticResource MaterialSymbols}"
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+
+                <Label
+                    Content="{Binding Explorer.FileList.SelectedSize, Converter={StaticResource FileSizeConverter}}"
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+                <Label
+                    Content="/"
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+                <Label
+                    Content="{Binding Explorer.FileList.AllSize, Converter={StaticResource FileSizeConverter}}"
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+
+
+                <Label
+                    Content=" "
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+                <Label
+                    Content="{Binding Explorer.CurrentFreeSpaceProgress}"
+                    FontFamily="{StaticResource MaterialSymbols}"
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+                <Label
+                    Content="{Binding Explorer.CurrentFreeSpace, Converter={StaticResource FileSizeConverter}}"
+                    FontSize="18"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+
+            </StackPanel>
+
+
+        </Grid>
+
+    </Border>
+
+
+
+
+</UserControl>
