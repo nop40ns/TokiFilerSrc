@@ -15,10 +15,10 @@ namespace ExplorerKit.Native.Windows.Services;
 public interface IDropSource
 {
     [PreserveSig]
-    int QueryContinueDrag([MarshalAs(UnmanagedType.Bool)] bool fEscapePressed, uint grfKeyState);
+    int QueryContinueDrag([MarshalAs(UnmanagedType.Bool)] bool fEscapePressed, int grfKeyState);
 
     [PreserveSig]
-    int GiveFeedback(uint dwEffects);
+    int GiveFeedback(int dwEffects);
 }
 
 public class WindowsDragDropService : INativeDragDropService
@@ -35,7 +35,7 @@ public class WindowsDragDropService : INativeDragDropService
 
     // 💡 2. Windows公式の完璧な IDataObject (IntPtr) を製造するシェルAPI
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
-    private static extern int SHCreateDataObject(IntPtr pidlFolder, uint cidl, IntPtr[] apidl, IntPtr pFormatEtc, ref Guid riid, out IntPtr ppv);
+    private static extern int SHCreateDataObject(IntPtr pidlFolder, uint cidl, IntPtr apidl, IntPtr pFormatEtc, ref Guid riid, out IntPtr ppv);
 
     [DllImport("shell32.dll", CharSet = CharSet.Unicode, PreserveSig = true)]
     private static extern IntPtr ILCreateFromPath([MarshalAs(UnmanagedType.LPWStr)] string pszPath);
@@ -73,34 +73,51 @@ public class WindowsDragDropService : INativeDragDropService
             IntPtr pDropSource = IntPtr.Zero;
             IntPtr parentPidl = IntPtr.Zero;
             var relativePidlList = new List<IntPtr>();
+            IntPtr pArrayUnmanaged = IntPtr.Zero;
 
             try
             {
                 string firstPath = paths[0];
                 string? parentDir = Path.GetDirectoryName(firstPath);
-                if (string.IsNullOrEmpty(parentDir)) return Task.CompletedTask;
+
+
+                //if (string.IsNullOrEmpty(parentDir)) return Task.CompletedTask;
 
                 parentPidl = ILCreateFromPath(parentDir);
-                if (parentPidl == IntPtr.Zero) return Task.CompletedTask;
+                //if (parentPidl == IntPtr.Zero) return Task.CompletedTask;
 
                 foreach (var path in paths)
                 {
                     IntPtr fullPidl = ILCreateFromPath(path);
+
                     if (fullPidl != IntPtr.Zero)
                     {
-                        IntPtr childPidl = ILFindLastID(fullPidl);
-                        if (childPidl != IntPtr.Zero)
+                        // 1. フルパスPIDLから、末尾のファイル名部分のポインタを特定する
+                        IntPtr lastIdPointer = ILFindLastID(fullPidl);
+
+                        // 2. 💡【重要】特定した末尾部分「だけ」をクローンしてリストに詰める
+                        if (lastIdPointer != IntPtr.Zero)
                         {
-                            relativePidlList.Add(ILClone(childPidl));
+                            relativePidlList.Add(ILClone(lastIdPointer));
                         }
+
+                        // 3. 用が済んだフルパスの元メモリはすぐに解放する
                         ILFree(fullPidl);
                     }
                 }
-
                 if (relativePidlList.Count == 0) return Task.CompletedTask;
 
+
+                int count = relativePidlList.Count;
+                int pointerSize = Marshal.SizeOf(typeof(IntPtr));
+                pArrayUnmanaged = Marshal.AllocHGlobal(pointerSize * count);
+
+                for (int i = 0; i < count; i++)
+                    Marshal.WriteIntPtr(pArrayUnmanaged, i * pointerSize, relativePidlList[i]);
+
+
                 Guid riid = IID_IDataObject;
-                int hrData = SHCreateDataObject(parentPidl, (uint)relativePidlList.Count, relativePidlList.ToArray(), IntPtr.Zero, ref riid, out pDataObject);
+                int hrData = SHCreateDataObject(parentPidl, (uint)relativePidlList.Count, pArrayUnmanaged, IntPtr.Zero, ref riid, out pDataObject);
 
                 if (hrData >= 0 && pDataObject != IntPtr.Zero)
                 {
@@ -111,10 +128,11 @@ public class WindowsDragDropService : INativeDragDropService
                     {
                         System.Diagnostics.Debug.WriteLine("🔑 [Win32 Native] 同期コンテキストで DoDragDrop を開始します");
 
-                        int finalEffect = DROPEFFECT_COPY | DROPEFFECT_MOVE;
+                        //int finalEffect = DROPEFFECT_COPY | DROPEFFECT_MOVE;
+                        int finalEffect = 0;
 
                         // 💡 同期実行されるため、マウスの状態が1ミリ秒も途切れることなくOSへ引き継がれます！
-                        int result = DoDragDrop(pDataObject, pDropSource, DROPEFFECT_COPY , ref finalEffect);
+                        int result = DoDragDrop(pDataObject, pDropSource, DROPEFFECT_COPY, ref finalEffect);
 
                         System.Diagnostics.Debug.WriteLine($"✅ [Win32 Native] ループから生還！ 結果: HRESULT=0x{result:X8}, Effect={finalEffect}");
                     }
@@ -122,6 +140,7 @@ public class WindowsDragDropService : INativeDragDropService
             }
             finally
             {
+                if (pArrayUnmanaged != IntPtr.Zero) Marshal.FreeHGlobal(pArrayUnmanaged);
                 if (pDataObject != IntPtr.Zero) Marshal.Release(pDataObject);
                 if (pDropSource != IntPtr.Zero) Marshal.Release(pDropSource);
                 if (parentPidl != IntPtr.Zero) ILFree(parentPidl);
@@ -144,7 +163,31 @@ public class WindowsDragDropService : INativeDragDropService
     [ClassInterface(ClassInterfaceType.None)]
     public class Win32DropSource : IDropSource
     {
-        public int QueryContinueDrag(bool fEscapePressed, uint grfKeyState)
+
+        private struct POINT
+        {
+            int x;
+            int y;
+        }
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern bool GetCursorPos(out POINT lppoint);
+
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern bool SetSystemCursor(IntPtr hcur, uint id);
+
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr LoadCursor(IntPtr hInstance, IntPtr lpCursorName);
+
+        [DllImport("user32.dll", CharSet = CharSet.Auto)]
+        private static extern IntPtr SetCursor(IntPtr lpCursorHandle);
+
+        private static readonly IntPtr IDC_ARROW = (IntPtr)32512;
+        private static readonly IntPtr IDC_CROSS = (IntPtr)32515; // 代替マークなど
+
+        public int QueryContinueDrag(bool fEscapePressed, int grfKeyState)
         {
             if (fEscapePressed) return DRAGDROP_S_CANCEL;
 
@@ -157,6 +200,14 @@ public class WindowsDragDropService : INativeDragDropService
             return 0; // S_OK (ドラッグ継続)
         }
 
-        public int GiveFeedback(uint dwEffects) => 0x00040002; // DRAGDROP_S_USEDEFAULTCURSORS
+        public int GiveFeedback(int dwEffects)
+        {
+            System.Diagnostics.Debug.WriteLine($"[GiveFeedback] dwEffects = {dwEffects}");
+
+            SetCursor(LoadCursor(IntPtr.Zero, IDC_ARROW));
+
+            return 0;
+        }
+
     }
 }
