@@ -29,7 +29,7 @@ public class WindowsDragDropService : INativeDragDropService
 {
     // 💡 1. 第一・第二引数を安全な IntPtr (生のポインタ) に統一し、メモリ破壊を完璧に防ぎます
     [DllImport("ole32.dll", PreserveSig = true, CallingConvention = CallingConvention.StdCall)]
-    private static extern int DoDragDrop(IntPtr pDataObj, IntPtr pDropSource, int dwEffects, ref int pdwEffect);
+    private static extern int DoDragDrop(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj,  IntPtr pDropSource, int dwEffects, ref int pdwEffect);
 
     [DllImport("ole32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern int OleInitialize(IntPtr pvReserved);
@@ -160,10 +160,11 @@ public class WindowsDragDropService : INativeDragDropService
                     {
                         System.Diagnostics.Debug.WriteLine("🔑 [Win32 Native] 最もクリーンで高互換な構造で OLE DoDragDrop を開始します");
 
-                        int finalEffect = DROPEFFECT_COPY;
+                        int allowedEffects = DROPEFFECT_COPY | DROPEFFECT_MOVE;
+                        int finalEffect = allowedEffects;
 
                         // 💡 エクスプローラーとの通信スタックが完全に純粋な形式になるため、エラー（2147483649）が完全に破砕されます！
-                        int result = DoDragDrop(pDataObject, pDropSource, DROPEFFECT_COPY, ref finalEffect);
+                        int result = DoDragDrop(comDataObject, pDropSource, allowedEffects, ref finalEffect);
 
                         System.Diagnostics.Debug.WriteLine($"✅ [Win32 Native] ループから生還！ 結果: HRESULT=0x{result:X8}, Effect={finalEffect}");
                     }
@@ -384,7 +385,7 @@ public class SimpleComDataObject : System.Runtime.InteropServices.ComTypes.IData
         Debug.WriteLine($"[GetData] 要求フォーマット: {requestedFormat}, 保持フォーマット: {targetFormat}");
 
         // 💡 4. 【本命】CF_HDROP (15) の要求が来た場合
-        if (_hasData && requestedFormat == 15)
+        if (_hasData &&( requestedFormat == 15 || requestedFormat == 49505))
         {
             Debug.WriteLine("🔥【完全開通】エクスプローラーがファイルパスデータを正常に読み込みました！");
             pmedium.tymed = _medium.tymed;
@@ -431,10 +432,31 @@ public class SimpleComDataObject : System.Runtime.InteropServices.ComTypes.IData
         return unchecked((int)0x80004001); // E_NOTIMPL
     }
 
+
+    public IEnumFORMATETC EnumFormatEtc(DATADIR dwDirection)
+    {
+        if (dwDirection == DATADIR.DATADIR_GET && _hasData)
+        {
+            // 2つのフォーマット情報を明示的にエクスプローラーに提示する
+            var f1 = new FORMATETC { cfFormat = 15, ptd = IntPtr.Zero, dwAspect = DVASPECT.DVASPECT_CONTENT, lindex = -1, tymed = TYMED.TYMED_HGLOBAL };
+            var f2 = new FORMATETC { cfFormat = (short)_nativeFormat.cfFormat, ptd = IntPtr.Zero, dwAspect = DVASPECT.DVASPECT_CONTENT, lindex = -1, tymed = TYMED.TYMED_HGLOBAL };
+
+            return new SimpleEnumFormatEtc(new FORMATETC[] { f1, f2 });
+        }
+
+        throw new COMException(string.Empty, unchecked((int)0x80004001)); // E_NOTIMPL
+    }
+
+
+
+
+
+
+
     // ★【今回の修正ポイント】
     // .NETのEnumFormatEtcメソッドの戻り値の型は例外を要求するため、
     // ランタイムに横取りされない純粋な COMException を直接スローします。
-    public IEnumFORMATETC EnumFormatEtc(DATADIR dwDirection)
+    public IEnumFORMATETC _EnumFormatEtc(DATADIR dwDirection)
     {
         if (dwDirection == DATADIR.DATADIR_GET && _hasData)
         {
