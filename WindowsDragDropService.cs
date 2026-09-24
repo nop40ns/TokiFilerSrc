@@ -25,8 +25,22 @@ public interface IDropSource
     int GiveFeedback(long dwEffects);
 }
 
+
+
+
 public class WindowsDragDropService : INativeDragDropService
 {
+
+ 
+    [DllImport("ole32.dll", PreserveSig = true)]
+    private static extern int RevokeDragDrop(IntPtr hwnd);
+
+    [DllImport("ole32.dll", PreserveSig = true)]
+    private static extern int RegisterDragDrop(IntPtr hwnd, [MarshalAs(UnmanagedType.IUnknown)] object pDropTarget); // 💡 IntPtr から object に変更
+
+
+
+
     // 💡 1. 第一・第二引数を安全な IntPtr (生のポインタ) に統一し、メモリ破壊を完璧に防ぎます
     [DllImport("ole32.dll", PreserveSig = true, CallingConvention = CallingConvention.StdCall)]
     private static extern int DoDragDrop(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj,  IntPtr pDropSource, int dwEffects, ref int pdwEffect);
@@ -59,6 +73,22 @@ public class WindowsDragDropService : INativeDragDropService
     private const int DRAGDROP_S_CANCEL = 0x00040002;
 
     private static Guid IID_IDataObject = new Guid("0000010e-0000-0000-C000-000000000046");
+
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr GetActiveWindow();
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr GetPropW(IntPtr hWnd, string lpString);
+
+
+
+
+
+
+
+
+
 
     // 💡 WindowsDragDropService 内の ExecuteDragDropAsync を以下に丸ごと差し替えます
     public Task ExecuteDragDropAsync(IEnumerable<string> filePaths)
@@ -148,7 +178,7 @@ public class WindowsDragDropService : INativeDragDropService
                     };
 
                     // 自作のラッパーにデータを格納 (所有権はC#でキープするため false)
-                    comDataObject.SetData(ref formatetc, ref stgmedium, false);
+                    comDataObject.SetData(ref formatetc, ref stgmedium, true);
 
                     // 💡 3. 生の DoDragDrop に引き渡すために、インターフェースのポインタに変換
                     pDataObject = Marshal.GetComInterfaceForObject(comDataObject, typeof(System.Runtime.InteropServices.ComTypes.IDataObject));
@@ -158,23 +188,53 @@ public class WindowsDragDropService : INativeDragDropService
 
                     if (pDataObject != IntPtr.Zero && pDropSource != IntPtr.Zero)
                     {
-                        System.Diagnostics.Debug.WriteLine("🔑 [Win32 Native] 最もクリーンで高互換な構造で OLE DoDragDrop を開始します");
+                        // 💡 1. DoDragDrop を開始する前に、現在のウィンドウハンドルと Avalonia のポインタを取得
+                        IntPtr hwnd = GetActiveWindow();
+                        IntPtr pAvaloniaDropTarget = GetPropW(hwnd, "OleDropTargetInterface");
+
+                        if (hwnd != IntPtr.Zero && pAvaloniaDropTarget != IntPtr.Zero)
+                        {
+                            System.Diagnostics.Debug.WriteLine("💥 [強制介入] DoDragDrop直前：Avalonia のフックを完全に引き剥がします。");
+                            // 💡 2. ここで初めて「本当の解放（OSからのフック削除）」を行います！
+                            RevokeDragDrop(hwnd);
+                        }
+
+                        System.Diagnostics.Debug.WriteLine("🔑 [Win32 Native] 競合が消え去った純粋な状態で OLE DoDragDrop を開始します");
 
                         int allowedEffects = DROPEFFECT_COPY | DROPEFFECT_MOVE;
                         int finalEffect = allowedEffects;
 
-                        // 💡 エクスプローラーとの通信スタックが完全に純粋な形式になるため、エラー（2147483649）が完全に破砕されます！
+                        // 💡 3. 【本命】ここで Win32 のモーダルループが起動します。
+                        // マウスの左ボタンを離すか、Escキーを押すまで、プログラムはここでピタッと一時停止します。
                         int result = DoDragDrop(comDataObject, pDropSource, allowedEffects, ref finalEffect);
 
+                        // 👆 マウスを離した瞬間、プログラムが下の行へ進み出します！ 👆
+
                         System.Diagnostics.Debug.WriteLine($"✅ [Win32 Native] ループから生還！ 結果: HRESULT=0x{result:X8}, Effect={finalEffect}");
+
+                        // 💡 4. 【超重要】DoDragDrop が完全に「終わった後」に、始めて Avalonia を元に戻してあげます！
+                        if (hwnd != IntPtr.Zero && pAvaloniaDropTarget != IntPtr.Zero)
+                        {
+                            System.Diagnostics.Debug.WriteLine("♻️ [復元] DoDragDrop終了後：Avalonia の DropTarget を再登録します。");
+
+                            object avaloniaDropTargetObj = Marshal.GetObjectForIUnknown(pAvaloniaDropTarget);
+                            if (avaloniaDropTargetObj != null)
+                            {
+                                RegisterDragDrop(hwnd, avaloniaDropTargetObj);
+                                System.Diagnostics.Debug.WriteLine("🟩 Avalonia の再登録が正常に完了しました。");
+                            }
+                        }
                     }
+
+
+
                 }
 
 
             }
             finally
             {
-                if (hGlobal != IntPtr.Zero) Marshal.FreeHGlobal(hGlobal);
+                //if (hGlobal != IntPtr.Zero) Marshal.FreeHGlobal(hGlobal);
 
                 if (pArrayUnmanaged != IntPtr.Zero) Marshal.FreeHGlobal(pArrayUnmanaged);
                 if (pDataObject != IntPtr.Zero) Marshal.Release(pDataObject);
@@ -355,7 +415,9 @@ public class SimpleComDataObject : System.Runtime.InteropServices.ComTypes.IData
     private STGMEDIUM _medium;
     private bool _hasData = false;
 
-     
+    [DllImport("ole32.dll", PreserveSig = true)]
+    private static extern IntPtr OleDuplicateData(IntPtr hSrc, uint cfFormat, uint uiFlags);
+
 
     public void SetData(ref FORMATETC pformatetc, ref STGMEDIUM pmedium, bool fRelease)
     {
@@ -385,11 +447,16 @@ public class SimpleComDataObject : System.Runtime.InteropServices.ComTypes.IData
         Debug.WriteLine($"[GetData] 要求フォーマット: {requestedFormat}, 保持フォーマット: {targetFormat}");
 
         // 💡 4. 【本命】CF_HDROP (15) の要求が来た場合
-        if (_hasData &&( requestedFormat == 15 || requestedFormat == 49505))
+        if (_hasData && (requestedFormat == 15 || requestedFormat == 49505 || requestedFormat == 49506))
         {
             Debug.WriteLine("🔥【完全開通】エクスプローラーがファイルパスデータを正常に読み込みました！");
-            pmedium.tymed = _medium.tymed;
-            pmedium.unionmember = _medium.unionmember;
+
+            IntPtr hDuplicate = OleDuplicateData(_medium.unionmember, 15, 2); // 2 = GMEM_MOVEABLE
+
+            pmedium.tymed = TYMED.TYMED_HGLOBAL;
+            pmedium.unionmember = hDuplicate != IntPtr.Zero ? hDuplicate : _medium.unionmember;
+
+            // 💡 所有権をドロップ先に引き渡すため、ここは IntPtr.Zero で正解です
             pmedium.pUnkForRelease = IntPtr.Zero;
             return;
         }
