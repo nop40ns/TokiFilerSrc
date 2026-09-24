@@ -2,14 +2,29 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.DirectoryServices.ActiveDirectory;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Runtime.InteropServices.ComTypes;
 using System.Runtime.Serialization;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace ExplorerKit.Native.Windows.Services;
+
+
+[StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+public struct DROPFILES
+{
+    public int pFiles; // 文字列データが始まるバイトオフセット
+    public int x;      // ドロップ位置 X
+    public int y;      // ドロップ位置 Y
+    public bool fNC;   // クライアント領域判定
+    public bool fWide; // Unicode(true) か ANSI(false) か
+}
+
+
 
 [ComImport]
 [Guid("00000121-0000-0000-C000-000000000046")]
@@ -19,10 +34,10 @@ public interface IDropSource
 {
 
     [PreserveSig]
-    int QueryContinueDrag(long fEscapePressed, long grfKeyState);
+    int QueryContinueDrag(int fEscapePressed, int grfKeyState);
 
     [PreserveSig]
-    int GiveFeedback(long dwEffects);
+    int GiveFeedback(int dwEffects);
 }
 
 
@@ -31,7 +46,7 @@ public interface IDropSource
 public class WindowsDragDropService : INativeDragDropService
 {
 
- 
+
     [DllImport("ole32.dll", PreserveSig = true)]
     private static extern int RevokeDragDrop(IntPtr hwnd);
 
@@ -43,7 +58,7 @@ public class WindowsDragDropService : INativeDragDropService
 
     // 💡 1. 第一・第二引数を安全な IntPtr (生のポインタ) に統一し、メモリ破壊を完璧に防ぎます
     [DllImport("ole32.dll", PreserveSig = true, CallingConvention = CallingConvention.StdCall)]
-    private static extern int DoDragDrop(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj,  IntPtr pDropSource, int dwEffects, ref int pdwEffect);
+    private static extern int DoDragDrop(System.Runtime.InteropServices.ComTypes.IDataObject pDataObj, IntPtr pDropSource, int dwEffects, ref int pdwEffect);
 
     [DllImport("ole32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     private static extern int OleInitialize(IntPtr pvReserved);
@@ -220,8 +235,21 @@ public class WindowsDragDropService : INativeDragDropService
                             object avaloniaDropTargetObj = Marshal.GetObjectForIUnknown(pAvaloniaDropTarget);
                             if (avaloniaDropTargetObj != null)
                             {
-                                RegisterDragDrop(hwnd, avaloniaDropTargetObj);
-                                System.Diagnostics.Debug.WriteLine("🟩 Avalonia の再登録が正常に完了しました。");
+                                Avalonia.Threading.Dispatcher.UIThread.Post(() =>
+                                {
+                                    try
+                                    {
+                                        // メインスレッド側のOLE空間が生きているか確認・初期化
+                                        OleInitialize(IntPtr.Zero);
+
+                                        // 元のAvaloniaのターゲットを再登録
+                                        RegisterDragDrop(hwnd, avaloniaDropTargetObj);
+                                    }
+                                    catch (Exception ex)
+                                    {
+                                        Debug.WriteLine($"❌ 復元処理中の例外: {ex.Message}");
+                                    }
+                                });
                             }
                         }
                     }
@@ -359,7 +387,7 @@ public class WindowsDragDropService : INativeDragDropService
 
 
 
-        public int QueryContinueDrag(long fEscapePressed, long grfKeyState)
+        public int QueryContinueDrag(int fEscapePressed, int grfKeyState)
         {
             System.Diagnostics.Debug.WriteLine($"[QueryContinueDrag] fEscapePressed = {fEscapePressed}");
             System.Diagnostics.Debug.WriteLine($"[QueryContinueDrag] grfKeyState = {grfKeyState}");
@@ -376,7 +404,7 @@ public class WindowsDragDropService : INativeDragDropService
             return 0; // S_OK (ドラッグ継続)
         }
 
-        public int GiveFeedback(long dwEffects)
+        public int GiveFeedback(int dwEffects)
         {
             System.Diagnostics.Debug.WriteLine($"[GiveFeedback] dwEffects = {dwEffects}");
 
@@ -400,150 +428,144 @@ public class WindowsDragDropService : INativeDragDropService
 struct NativeFormatEtc
 {
     public int cfFormat;
-    public IntPtr ptd; 
-    public int dwAspect; 
-    public int lindex; 
+    public IntPtr ptd;
+    public int dwAspect;
+    public int lindex;
     public int tymed;
 }
 
 [ComVisible(true)]
 [ClassInterface(ClassInterfaceType.None)]
-public class SimpleComDataObject : System.Runtime.InteropServices.ComTypes.IDataObject
+
+
+public class EnumerableFormatEtc : IEnumFORMATETC
 {
+    private readonly FORMATETC[] _formats;
+    private int _currentIndex;
 
-    private NativeFormatEtc _nativeFormat;
-    private STGMEDIUM _medium;
-    private bool _hasData = false;
-
-    [DllImport("ole32.dll", PreserveSig = true)]
-    private static extern IntPtr OleDuplicateData(IntPtr hSrc, uint cfFormat, uint uiFlags);
-
-
-    public void SetData(ref FORMATETC pformatetc, ref STGMEDIUM pmedium, bool fRelease)
+    public EnumerableFormatEtc(FORMATETC[] formats)
     {
-        _nativeFormat.cfFormat = pformatetc.cfFormat;
-        _nativeFormat.ptd = pformatetc.ptd;
-        _nativeFormat.dwAspect = (int)pformatetc.dwAspect;
-        _nativeFormat.lindex = pformatetc.lindex;
-        _nativeFormat.tymed = (int)pformatetc.tymed;
-
-        _medium = pmedium;
-        _hasData = true;
+        _formats = formats;
+        _currentIndex = 0;
     }
 
-    public void GetData(ref FORMATETC pformatetc, out STGMEDIUM pmedium)
+    public int Next(int celt, FORMATETC[] rgelt, int[] pceltFetched)
     {
+        if (rgelt == null) return unchecked((int)0x80070057); // E_INVALIDARG
 
-        Debug.WriteLine($"GetDataに入った：");
-        Debug.WriteLine($"_hasData：{_hasData}");
-        Debug.WriteLine($"pformatetc.cfFormat：{pformatetc.cfFormat}");
-        Debug.WriteLine($"_format.cfFormat：{_nativeFormat.cfFormat}");
-        Debug.WriteLine($"pformatetc.tymed：{pformatetc.tymed}");
-        Debug.WriteLine($"_format.tymed：{_nativeFormat.tymed}");
-
-        int requestedFormat = (ushort)pformatetc.cfFormat;
-        int targetFormat = (ushort)_nativeFormat.cfFormat;
-
-        Debug.WriteLine($"[GetData] 要求フォーマット: {requestedFormat}, 保持フォーマット: {targetFormat}");
-
-        // 💡 4. 【本命】CF_HDROP (15) の要求が来た場合
-        if (_hasData && (requestedFormat == 15 || requestedFormat == 49505 || requestedFormat == 49506))
+        int fetched = 0;
+        while (_currentIndex < _formats.Length && fetched < celt)
         {
-            Debug.WriteLine("🔥【完全開通】エクスプローラーがファイルパスデータを正常に読み込みました！");
-
-            IntPtr hDuplicate = OleDuplicateData(_medium.unionmember, 15, 2); // 2 = GMEM_MOVEABLE
-
-            pmedium.tymed = TYMED.TYMED_HGLOBAL;
-            pmedium.unionmember = hDuplicate != IntPtr.Zero ? hDuplicate : _medium.unionmember;
-
-            // 💡 所有権をドロップ先に引き渡すため、ここは IntPtr.Zero で正解です
-            pmedium.pUnkForRelease = IntPtr.Zero;
-            return;
+            rgelt[fetched] = _formats[_currentIndex];
+            _currentIndex++;
+            fetched++;
         }
 
-        // 💡 5. 対応していない形式が来たら、例外を出さずに空データを返して綺麗に受け流す
-        pmedium.tymed = pformatetc.tymed;
-        pmedium.unionmember = IntPtr.Zero;
-        pmedium.pUnkForRelease = IntPtr.Zero;
-        return;
-    
-    }
-
-    public int QueryGetData(ref FORMATETC pformatetc)
-    {
-        int requestedFormat = (ushort)pformatetc.cfFormat;
-        if (_hasData && requestedFormat == 15) return 0; // S_OK
-        return unchecked((int)0x80040064); // DV_E_FORMATETC
-    }
-
-    public void GetDataHere(ref FORMATETC pformatetc, ref STGMEDIUM pmedium)
-        => throw new COMException(string.Empty, unchecked((int)0x80004001)); // E_NOTIMPL
-
-    public int GetCanonicalFormatEtc(ref FORMATETC pformatetcIn, out FORMATETC pformatetcOut)
-    {
-        pformatetcOut = new FORMATETC();
-        return unchecked((int)0x80004001); // E_NOTIMPL
-    }
-
-    public int DAdvise(ref FORMATETC pformatetc, ADVF advf, IAdviseSink pAdvSink, out int pdwConnection)
-    {
-        pdwConnection = 0;
-        return unchecked((int)0x80004001); // E_NOTIMPL
-    }
-
-    public void DUnadvise(int dwConnection) { }
-
-    public int EnumDAdvise(out IEnumSTATDATA ppenumAdvise)
-    {
-        ppenumAdvise = null;
-        return unchecked((int)0x80004001); // E_NOTIMPL
-    }
-
-
-    public IEnumFORMATETC EnumFormatEtc(DATADIR dwDirection)
-    {
-        if (dwDirection == DATADIR.DATADIR_GET && _hasData)
+        if (pceltFetched != null && pceltFetched.Length > 0)
         {
-            // 2つのフォーマット情報を明示的にエクスプローラーに提示する
-            var f1 = new FORMATETC { cfFormat = 15, ptd = IntPtr.Zero, dwAspect = DVASPECT.DVASPECT_CONTENT, lindex = -1, tymed = TYMED.TYMED_HGLOBAL };
-            var f2 = new FORMATETC { cfFormat = (short)_nativeFormat.cfFormat, ptd = IntPtr.Zero, dwAspect = DVASPECT.DVASPECT_CONTENT, lindex = -1, tymed = TYMED.TYMED_HGLOBAL };
-
-            return new SimpleEnumFormatEtc(new FORMATETC[] { f1, f2 });
+            pceltFetched[0] = fetched;
         }
 
-        throw new COMException(string.Empty, unchecked((int)0x80004001)); // E_NOTIMPL
+        return (fetched == celt) ? 0 : 1; // S_OK : S_FALSE
     }
 
-
-
-
-
-
-
-    // ★【今回の修正ポイント】
-    // .NETのEnumFormatEtcメソッドの戻り値の型は例外を要求するため、
-    // ランタイムに横取りされない純粋な COMException を直接スローします。
-    public IEnumFORMATETC _EnumFormatEtc(DATADIR dwDirection)
+    public int Skip(int celt)
     {
-        if (dwDirection == DATADIR.DATADIR_GET && _hasData)
-        {
-            // .NET標準の FORMATETC 構造体に戻して列挙子へ引き渡す
-            var format = new FORMATETC
-            {
-                cfFormat = (short)_nativeFormat.cfFormat,
-                ptd = _nativeFormat.ptd,
-                dwAspect = (DVASPECT)_nativeFormat.dwAspect,
-                lindex = _nativeFormat.lindex,
-                tymed = (TYMED)_nativeFormat.tymed
-            };
-            return new SimpleEnumFormatEtc(new FORMATETC[] { format });
-        }
+        _currentIndex += celt;
+        return (_currentIndex <= _formats.Length) ? 0 : 1;
+    }
 
-        throw new COMException(string.Empty, unchecked((int)0x80004001)); // E_NOTIMPL
+    public int Reset()
+    {
+        _currentIndex = 0;
+        return 0; // S_OK
+    }
+
+    public void Clone(out IEnumFORMATETC ppenum)
+    {
+        ppenum = new EnumerableFormatEtc(_formats) { _currentIndex = this._currentIndex };
     }
 }
 
+public class SimpleComDataObject : System.Runtime.InteropServices.ComTypes.IDataObject
+{
+    private FORMATETC _formatetc;
+    private STGMEDIUM _medium;
+    private bool _hasData = false;
 
+    // 💡 今回のあなたのコードに合わせて、引数なし（空）のコンストラクタを用意します
+    public SimpleComDataObject()
+    {
+    }
+
+    // 💡 ExecuteDragDropAsync 内の「comDataObject.SetData(...)」で呼び出され、データを記憶します
+    public void SetData(ref System.Runtime.InteropServices.ComTypes.FORMATETC pformatetcIn, ref System.Runtime.InteropServices.ComTypes.STGMEDIUM pmedium, bool fRelease)
+    {
+        _formatetc = pformatetcIn;
+        _medium = pmedium;
+        _hasData = true;
+
+        // 💡 成功時は何も返さず（void）そのまま終了します。
+        // もし失敗を表現したい場合のみ、Marshal.ThrowExceptionForHR などを呼び出します。
+    }
+
+    // 💡 ドロップ先のアプリ（Linarやエクスプローラー）がデータを引き抜くときに呼び出されます
+    public void GetData(ref FORMATETC pformatetc, out STGMEDIUM pmedium)
+    {
+        pmedium = new STGMEDIUM();
+        int requestedFormat = (ushort)pformatetc.cfFormat;
+
+        Debug.WriteLine($"[GetData] 相手からデータ請求が来ました。要求フォーマット: {requestedFormat}");
+
+        // 💡 相手が 15番(CF_HDROP) を求めてきて、かつデータがセットされている場合
+        if (_hasData && requestedFormat == 15)
+        {
+            Debug.WriteLine("🔥【完全開通】本物の CF_HDROP データを引き渡します！");
+
+            // Windowsのルールに従い、要求されたグローバルメモリの所有権（unionmember）を複製またはそのまま渡します
+            pmedium.tymed = TYMED.TYMED_HGLOBAL;
+            pmedium.unionmember = _medium.unionmember;
+            pmedium.pUnkForRelease = null!; // 所有権をドロップ先に完全に引き渡す
+            return;
+        }
+
+        // 対応していない形式の場合は、空データを返して綺麗に受け流す
+        pmedium.tymed = pformatetc.tymed;
+        pmedium.unionmember = IntPtr.Zero;
+        pmedium.pUnkForRelease = null!;
+    }
+
+    // 💡 相手が「お前はそのデータを持ってるか？」と聞いてきたときに答えるメソッド
+    public int QueryGetData(ref FORMATETC pformatetc)
+    {
+        int requestedFormat = (ushort)pformatetc.cfFormat;
+        return (_hasData && requestedFormat == 15) ? 0 : unchecked((int)0x80040064); // S_OK : DV_E_FORMATETC
+    }
+
+    // 💡 【超重要】ドラッグ開始時に、エクスプローラー等に「15番（ファイル）を持ってます」とカタログを提示します
+    public System.Runtime.InteropServices.ComTypes.IEnumFORMATETC EnumFormatEtc(System.Runtime.InteropServices.ComTypes.DATADIR direction)
+    {
+        Debug.WriteLine($"📋 [EnumFormatEtc] 相手からデータ目録（カタログ）を請求されました。方向: {direction}");
+
+        if (direction == DATADIR.DATADIR_GET)
+        {
+            var formats = new FORMATETC[]
+            {
+                // 「私は15番（CF_HDROP）をグローバルメモリ形式で持っています」と高らかに宣言
+                new FORMATETC { cfFormat = 15, tymed = TYMED.TYMED_HGLOBAL, dwAspect = DVASPECT.DVASPECT_CONTENT, lindex = -1 }
+            };
+            return new EnumerableFormatEtc(formats);
+        }
+        throw new COMException("Not implemented", unchecked((int)0x80004001)); // E_NOTIMPL
+    }
+
+    // --- 残りの使われないインターフェイスメソッドは、.NET仕様に合わせて void/int で綺麗にスルー ---
+    public void GetDataHere(ref FORMATETC pformatetc, ref STGMEDIUM pmedium) => throw new COMException("Not impl", unchecked((int)0x80004001));
+    public int GetCanonicalFormatEtc(ref FORMATETC pformatetcIn, out FORMATETC pformatetcOut) { pformatetcOut = new FORMATETC(); return unchecked((int)0x80004001); }
+    public int DAdvise(ref FORMATETC pformatetc, ADVF advf, IAdviseSink pAdvSink, out int pdwConnection) { pdwConnection = 0; return unchecked((int)0x80004001); }
+    public void DUnadvise(int dwConnection) => throw new COMException("Not impl", unchecked((int)0x80004001));
+    public int EnumDAdvise(out IEnumSTATDATA ppenumAdvise) { ppenumAdvise = null!; return unchecked((int)0x80004001); }
+}
 
 public class SimpleEnumFormatEtc : IEnumFORMATETC
 {
