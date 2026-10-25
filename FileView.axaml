@@ -3,33 +3,413 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
     xmlns:mc="http://openxmlformats.org"
-
-    xmlns:mvm="clr-namespace:ExplorerKit.MVVM.ViewModels;assembly=ExplorerKit.MVVM"
-
-    xmlns:t_vm="clr-namespace:TokiFiler.ViewModel;assembly=TokiFiler"
-
+    x:Class="TokiFiler.Avalonia.UserControls.FileView"
+    xmlns:local="using:TokiFiler.Avalonia.UserControls"
+    xmlns:uc="using:TokiFiler.Avalonia.UserControls"
+    xmlns:mvm="using:ExplorerKit.MVVM.ViewModels"
+    xmlns:avm="using:ExplorerKit.MVVM.Avalonia.ViewModels"
+    xmlns:t_vm="using:TokiFiler.Avalonia.ViewModels"
     d:DesignWidth="800" d:DesignHeight="450"
+    >
 
-    x:Class="TokiFiler.Avalonia.UserControls.FileView">
+    <UserControl.Styles  >
+        <!-- 💡 基本状態：TextBlockのように見せるスタイル -->
+        <Style Selector="TextBox.RenameTextBoxStyle">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Cursor" Value="Arrow" />
+            <Setter Property="(ScrollViewer.HorizontalScrollBarVisibility)" Value="Disabled" />
+
+            <!-- 💡 【位置ズレ修正のコア】 -->
+            <!-- 1. デフォルトでTextBoxに設定されている「最小の高さ制限」を完全に解除します -->
+            <Setter Property="MinHeight" Value="0" />
+            <!-- 2. 外側の余白をゼロにします -->
+            <Setter Property="Margin" Value="0" />
+            <!-- 3. 内側の余白を「左右は4px、上下は0px（または1px）」に細かくコントロールします -->
+            <!-- ※もしこれでもまだ少しずれる場合は、"4,1" や "4,-1" などの数値に変えて微調整してください -->
+            <Setter Property="Padding" Value="0,0" />
+
+            <!-- 編集モード中はアクセンカラーの枠線を表示（既存の記述） -->
+            <Style Selector="^ /template/ Border#PART_BorderElement">
+                <Setter Property="BorderBrush" Value="{DynamicResource SystemControlHighlightAccentBrush}" />
+            </Style>
+            <Style Selector="^ /template/ Border#PART_BorderElement">
+                <Setter Property="BorderBrush" Value="{DynamicResource SystemControlHighlightAccentBrush}" />
+                <!-- 💡 内部パーツが持っている独自の Padding や Margin を完全にゼロにします -->
+                <Setter Property="Padding" Value="0" />
+                <Setter Property="Margin" Value="0" />
+                <!-- 💡 角丸があると左端に隙間が見える原因になるため、完全に四角形（0）にします -->
+                <Setter Property="CornerRadius" Value="0" />
+            </Style>
+
+
+
+        </Style>
+
+        <!-- 💡 編集モード（クラス「editing」が付与された時）：通常のTextBoxの見た目に戻す -->
+        <Style Selector="TextBox.RenameTextBoxStyle.editing">
+            <Setter Property="Background" Value="{DynamicResource ThemeBackgroundBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource ThemeBorderLowBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="Padding" Value="4,2" />
+            <Setter Property="IsReadOnly" Value="False" />
+            <Setter Property="Focusable" Value="True" />
+            <Setter Property="Cursor" Value="Ibeam" />
+
+            <!-- 編集時は枠線や背景をシステム既定に戻す -->
+            <Style Selector="^ /template/ Border#PART_BorderElement">
+                <Setter Property="BorderBrush" Value="{DynamicResource SystemControlHighlightAccentBrush}" />
+            </Style>
+        </Style>
+
+
+
+        <!-- マウスオーバー時のスタイル -->
+        <Style Selector="RadioButton:pointerover /template/ Border#Bd" >
+            <Setter
+                x:DataType="avm:AvaloniaDriveItemViewModel"
+                Property="Background"
+                Value="{Binding ViewColor.View.MouseOver.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+            <Setter Property="BorderBrush" Value="#44FFFFFF" />
+        </Style>
+
+        <!-- 選択中のスタイル -->
+        <Style Selector="RadioButton:checked /template/ Border#Bd">
+            <Setter
+                x:DataType="avm:AvaloniaDriveItemViewModel"
+                Property="Background"
+                Value="{Binding ViewColor.View.Selected.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+            <Setter Property="BorderBrush" Value="#88FFFFFF" />
+        </Style>
+
+        <Style Selector="RadioButton TextBlock">
+            <Setter x:DataType="avm:AvaloniaDriveItemViewModel"
+                    Property="Foreground"
+                    Value="{Binding ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+        </Style>
+        <Style Selector="RadioButton:pointerover TextBlock">
+            <Setter x:DataType="avm:AvaloniaDriveItemViewModel"
+                    Property="Foreground"
+                    Value="{Binding ViewColor.View.MouseOver.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+        </Style>
+
+        <Style Selector="Border.main-border">
+            <Setter Property="Background" Value="DarkGray" />
+        </Style>
+
+        <!-- ② IsActive が True になり、active クラスがついたときの背景色 -->
+        <!-- 「Border.active」というセレクターで、activeクラスを持つBorderを指定します -->
+        <Style Selector="Border.main-border.active">
+            <!-- バインディングがあるため、x:DataType を忘れずに指定します -->
+            <Setter x:DataType="t_vm:FileViewModelAvalonia"
+                    Property="Background"
+                    Value="{Binding ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+        </Style>
+
+        <!-- ① 基本スタイルとテンプレートの定義 -->
+        <Style Selector="Button.NavigateButton">
+            <!-- 自身のDataContext（FileViewModelAvalonia）の型を明示 -->
+            <Setter
+                x:DataType="t_vm:FileViewModelAvalonia"
+                Property="Background"
+                Value="{Binding Services.ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Width" Value="32" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="Template">
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="border"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="0">
+                        <ContentPresenter x:Name="contentPresenter"
+                                          Content="{TemplateBinding Content}"
+                                          ContentTemplate="{TemplateBinding ContentTemplate}"
+                                          Margin="{TemplateBinding Padding}"
+                                          HorizontalAlignment="Center"
+                                          VerticalAlignment="Center"
+                                          Foreground="{TemplateBinding Foreground}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+        </Style>
+
+        <!-- ② マウスオーバー時の処理 -->
+        <Style Selector="Button.NavigateButton:pointerover">
+            <Setter x:DataType="t_vm:FileViewModelAvalonia" Property="Foreground" Value="{Binding Services.ViewColor.View.MouseOver.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+            <Setter x:DataType="t_vm:FileViewModelAvalonia" Property="Background" Value="{Binding Services.ViewColor.View.MouseOver.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+        </Style>
+
+        <!-- ③ 無効時の処理 -->
+        <Style Selector="Button.NavigateButton:disabled /template/ Border#border">
+            <Setter Property="Opacity" Value="0.5" />
+        </Style>
+
+
+        <Style Selector="TextBlock.NavigateButtonText">
+
+            <Setter
+                x:DataType="t_vm:FileViewModelAvalonia"
+                Property="Foreground"
+                Value="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+
+
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="FontFamily" Value="{StaticResource MaterialSymbols}" />
+            <Setter Property="FontSize" Value="24" />
+
+            <Setter Property="FontWeight" Value="Thin" />
+
+        </Style>
+
+        <!--  共通スタイル定義  -->
+        <Style Selector="ToggleButton.FlatToggleButtonStyle" >
+            <!--  デフォルト設定  -->
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="{x:Type ToggleButton}">
+                        <Border
+                            x:Name="Bd"
+                            Background="Transparent" >
+                            <!--  Textプロパティは、各ボタンの「Content」から受け取る  -->
+                            <!--  FontSizeは、各ボタンの「FontSize」から受け取る  -->
+                            <TextBlock
+                                x:DataType="t_vm:FileViewModelAvalonia"
+
+                                x:Name="TextBlock"
+                                HorizontalAlignment="Center"
+                                VerticalAlignment="Center"
+                                FontFamily="{StaticResource MaterialSymbols}"
+                                FontSize="{TemplateBinding FontSize}"
+                                FontWeight="Thin"
+                                Foreground="{TemplateBinding Foreground}"
+
+                                Text="{TemplateBinding Content}" />
+                        </Border>
+
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- ② マウスオーバー時の処理 -->
+        <Style Selector="ToggleButton.FlatToggleButtonStyle:pointerover">
+            <Setter
+                x:DataType="t_vm:FileViewModelAvalonia"
+                Property="Foreground"
+                Value="{Binding Services.ViewColor.View.MouseOver.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+            <Setter
+                x:DataType="t_vm:FileViewModelAvalonia"
+                Property="Background"
+                Value="{Binding Services.ViewColor.View.MouseOver.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+        </Style>
+        <Style Selector="ToggleButton.FlatToggleButtonStyle:checked">
+            <Setter
+                x:DataType="t_vm:FileViewModelAvalonia"
+                Property="Foreground"
+                Value="{Binding ViewColor.View.Selected.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+            <Setter
+                x:DataType="t_vm:FileViewModelAvalonia"
+                Property="Background"
+                Value="{Binding ViewColor.View.Selected.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+        </Style>
+
+        <Style Selector="RadioButton.NavigateRadioButton" >
+            <Setter
+                x:DataType="t_vm:FileViewModelAvalonia"
+                Property="Foreground"
+                Value="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+            <Setter
+                x:DataType="t_vm:FileViewModelAvalonia"
+                Property="Background"
+                Value="{Binding Services.ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Width" Value="32" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Padding" Value="4" />
+            <Setter Property="FontSize" Value="18" />
+
+            <Setter Property="Template">
+                <ControlTemplate TargetType="RadioButton">
+                    <Border x:Name="border"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="0">
+                        <ContentPresenter
+                            x:Name="contentPresenter"
+                            Content="{TemplateBinding Content}"
+                            ContentTemplate="{TemplateBinding ContentTemplate}"
+                            Margin="{TemplateBinding Padding}"
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            Foreground="{TemplateBinding Foreground}" />
+                    </Border>
+                </ControlTemplate>
+            </Setter>
+
+
+        </Style>
+        <!-- ② マウスオーバー時の処理 -->
+        <Style Selector="RadioButton.NavigateRadioButton:pointerover">
+            <Setter
+                x:DataType="t_vm:FileViewModelAvalonia"
+                Property="Foreground"
+                Value="{Binding Services.ViewColor.View.MouseOver.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+            <Setter
+                x:DataType="t_vm:FileViewModelAvalonia"
+                Property="Background"
+                Value="{Binding Services.ViewColor.View.MouseOver.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+        </Style>
+
+        <!-- ③ 無効時の処理 -->
+        <Style Selector="RadioButton.NavigateRadioButton:disabled /template/ Border#border">
+            <Setter Property="Opacity" Value="0.5" />
+        </Style>
+
+        <Style Selector="TextBlock.NavigateRadioButtonText" >
+
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="FontFamily" Value="{StaticResource MaterialSymbols}" />
+            <Setter Property="FontSize" Value="24" />
+            <Setter Property="Foreground" Value="{Binding Foreground, RelativeSource={RelativeSource AncestorType=RadioButton}}" />
+            <Setter Property="FontWeight" Value="Thin" />
+
+        </Style>
+
+        <Style Selector="Button.HeaderButtonStyle"  >
+            <Setter Property="FontSize" Value="18" />
+
+
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="Margin" Value="10,0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}">
+                            <ContentPresenter
+                                Content="{TemplateBinding Content}"
+                                ContentTemplate="{TemplateBinding ContentTemplate}"
+                                Padding="{TemplateBinding Padding}"
+                                HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!--  ① 先にスタイルを定義する（この順番が大事！）  -->
+        <Style Selector="Border.ModernPopupBorderStyle">
+
+            <Setter
+                x:DataType="t_vm:FileViewModelAvalonia"
+                Property="Background"
+                Value="{Binding Services.ViewColor.View.MouseOver.Background, Converter={StaticResource HexColorToBrushConverter}}" />
+
+
+
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="BorderBrush" Value="#D2D2D2" />
+            <Setter Property="Margin" Value="0,0,10,10" />
+            <Setter Property="Effect">
+                <Setter.Value>
+                    <DropShadowEffect BlurRadius="10"
+                                      Opacity="0.15"
+                                      OffsetX="0"
+                                      OffsetY="2" />
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style Selector="ListBoxItem.ModernHistoryItemStyle" >
+
+            <Setter x:DataType="t_vm:FileViewModelAvalonia"
+                    Property="Foreground"
+                    Value="{Binding Services.ViewColor.View.Default.Foreground,
+                    Converter={StaticResource HexColorToBrushConverter}}" />
+
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate
+                        TargetType="ListBoxItem"
+                        x:DataType="mvm:ExplorerViewModel+HistoryItem"
+                        >
+
+
+                        <!--  透明なボタンを配置して、その中でコマンドを実行  -->
+                        <Button
+                            HorizontalContentAlignment="Stretch"
+                            Background="Transparent"
+                            BorderThickness="0"
+                            Command="{ReflectionBinding $parent[UserControl].DataContext.Explorer.JumpToHistoryCommand}"
+                            CommandParameter="{Binding }"
+                            Cursor="Hand"
+                            Foreground="{TemplateBinding Foreground}">
+                            <Button.Template>
+                                <ControlTemplate TargetType="Button">
+                                    <Border
+                                        x:Name="Bg"
+                                        Margin="4,1"
+                                        Background="Transparent"
+                                        CornerRadius="4">
+
+                                        <ContentPresenter x:DataType="mvm:ExplorerViewModel+HistoryItem"
+                                                          Margin="12,6"
+                                                          Content="{Binding DisplayPath}"
+                                                          TextElement.Foreground="{TemplateBinding Foreground}" />
+
+
+                                    </Border>
+                                </ControlTemplate>
+                            </Button.Template>
+                        </Button>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+
+        <Style Selector="ListBoxItem.ModernHistoryItemStyle Button:pointerover /template/ Border#Bg">
+            <Setter Property="Background" Value="#15000000" />
+        </Style>
+
+    </UserControl.Styles>
 
     <UserControl.Resources>
         <ResourceDictionary>
 
+            <!-- 💡リソースファイル（FileViewTemplate.axaml）をマージする -->
+            <ResourceDictionary.MergedDictionaries>
+                <!--
+                ※Source のパスは、実際のフォルダ構造に合わせて調整してください。
+                プロジェクトのルートからの相対パス、または /UserControls/Templates/... 形式で指定します。
+                -->
+                <ResourceInclude Source="avares://TokiFiler.Avalonia/UserControls/Templates/FileViewTemplate.axaml"/>
 
-
-
-            <DataTemplate x:Key="DriveButtonTemplate" x:DataType="mvm:DriveItemViewModel">
+            </ResourceDictionary.MergedDictionaries>
+            <DataTemplate x:Key="DriveButtonTemplate" x:DataType="avm:AvaloniaDriveItemViewModel">
                 <RadioButton
-                    CommandParameter="{Binding}"
                     GroupName="MyDriveGroup"
                     IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                    Command="{Binding DriveSelectedCommand}"
+                    CommandParameter="{Binding}"
                     >
-                    <RadioButton.Command>
-                        <Binding Path="((t_vm:FileViewModel)$parent[UserControl].DataContext).DriveSelectedCommand" />
-                    </RadioButton.Command>
-                    <RadioButton.CommandParameter>
-                        <Binding />
-                    </RadioButton.CommandParameter>
+
                     <RadioButton.Template>
                         <ControlTemplate TargetType="RadioButton">
                             <!--  ここで外枠と背景色を定義  -->
@@ -41,23 +421,14 @@
                                 BorderThickness="1"
                                 CornerRadius="2">
                                 <!--  中身（下のGrid）をここに表示  -->
-                                <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                <ContentPresenter
+                                    Content="{TemplateBinding Content}"
+                                    ContentTemplate="{TemplateBinding ContentTemplate}"
+                                    HorizontalAlignment="Center"
+                                    VerticalAlignment="Center" />
                             </Border>
 
-                            <ControlTemplate.Triggers>
-                                <!--  マウスオーバー時の色  -->
-                                <Trigger Property="IsMouseOver" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="{Binding ViewColor.View.MouseOver.Background, Converter={StaticResource HexColorToBrushConverter}}" />
-                                    <!--  ほんのり白く  -->
-                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#44FFFFFF" />
 
-                                </Trigger>
-                                <!--  選択中（IsChecked=True）の色  -->
-                                <Trigger Property="IsChecked" Value="True">
-                                    <Setter TargetName="Bd" Property="Background" Value="{Binding ViewColor.View.Selected.Background, Converter={StaticResource HexColorToBrushConverter}}" />
-                                    <Setter TargetName="Bd" Property="BorderBrush" Value="#88FFFFFF" />
-                                </Trigger>
-                            </ControlTemplate.Triggers>
                         </ControlTemplate>
                     </RadioButton.Template>
 
@@ -73,29 +444,13 @@
                             Width="20"
                             Height="20"
                             Margin="0,0,4,0"
+
                             Source="{Binding DriveIcon.IconImage}" />
                         <TextBlock
                             Grid.Column="1"
                             FontSize="20"
                             Text="{Binding DriveLetter}">
-                            <TextBlock.Style>
-                                <Style TargetType="TextBlock">
-                                    <!--  デフォルトの色（現在のバインド）  -->
-                                    <Setter Property="Foreground" Value="{Binding ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
 
-                                    <Style.Triggers>
-                                        <!--  RadioButtonが選択されている時の色  -->
-                                        <DataTrigger Binding="{Binding IsChecked, RelativeSource={RelativeSource AncestorType=RadioButton}}" Value="True">
-                                            <Setter Property="Foreground" Value="{Binding ViewColor.View.Selected.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
-                                        </DataTrigger>
-
-                                        <DataTrigger Binding="{Binding IsMouseOver, RelativeSource={RelativeSource AncestorType=RadioButton}}" Value="True">
-                                            <Setter Property="Foreground" Value="{Binding ViewColor.View.MouseOver.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-
-                                </Style>
-                            </TextBlock.Style>
                         </TextBlock>
                     </Grid>
                 </RadioButton>
@@ -107,28 +462,34 @@
     </UserControl.Resources>
 
 
-    <Border>
-        <Border.Style>
-            <Style TargetType="Border">
-                <Setter Property="Background" Value="DarkGray" />
-
-                <Style.Triggers>
-                    <DataTrigger Binding="{Binding IsActive}" Value="True">
-                        <Setter Property="Background" Value="{Binding ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}" />
-                    </DataTrigger>
-                </Style.Triggers>
-            </Style>
-        </Border.Style>
+    <Border
+        x:DataType="t_vm:FileViewModelAvalonia"
+        Classes="main-border"
+        Classes.active="{Binding IsActive}"
+        >
 
 
         <Grid
             x:Name="MainGrid"
             Margin="3"
             Background="{Binding ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}"
+
+            KeyDown="MainGrid_PreviewKeyDown"
+            PointerPressed="MainGrid_PointerPressed"
+            TextInput="MainGrid_PreviewTextInput"
+            >
+
+            <!--
+            <Grid
+            x:Name="MainGrid"
+            Margin="3"
+            Background="{Binding ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}"
             PreviewKeyDown="MainGrid_PreviewKeyDown"
             PreviewMouseDown="MainGrid_PreviewMouseDown"
-            PreviewTextInput="MainGrid_PreviewTextInput">
+            PreviewTextInput="MainGrid_PreviewTextInput"
 
+            >
+            </Grid> -->
 
             <Grid.RowDefinitions>
                 <RowDefinition Height="auto" />
@@ -155,81 +516,88 @@
                     Command="{Binding Explorer.BackCommand}"
                     DockPanel.Dock="Left"
                     IsEnabled="{Binding Explorer.CanGoBack}"
-                    MouseRightButtonUp="BackButton_MouseRightButtonUp"
-                    Style="{StaticResource NavigateButton}"
-                    ToolTip="{Binding Services.Localize.LocalizeAddressBar.Back}"
-                    Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                    Classes="NavigateButton"
+
+                    x:DataType="t_vm:FileViewModelAvalonia"
+                    ToolTip.Tip="{Binding Services.Localize.LocalizeAddressBar.Back}"
+
+                    >
 
                     <TextBlock
                         Margin="0,0,0,0"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
-                        Style="{StaticResource NavigateButtonText}"
-                        Text="&#xe5c4;" />
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        Classes="NavigateButtonText"
 
+                        Text="&#xe5c4;" />
+                    <Button.Flyout>
+                        <!-- Placement を Bottom に指定することで、ボタンの真下に自動配置されます -->
+                        <Flyout Placement="Bottom">
+                            <!--
+                            Popupの中にあった Border と ListBox をそのままここに配置します。
+                            ※Flyout自身が標準で背景や枠線を持っているため、
+                            もし二重に枠線が出てしまう場合は Border を削除して ListBox だけにしてください。
+                            -->
+                            <Border Classes="ModernPopupBorderStyle">
+                                <ListBox
+                                    x:Name="BackHistoryList"
+                                    Width="540"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    FontSize="18"
+                                    Classes="ModernHistoryItemStyle"
+                                    ItemsSource="{Binding Explorer.BackHistory}"  />
+                            </Border>
+                        </Flyout>
+                    </Button.Flyout>
                 </Button>
-                <Popup
-                    x:Name="BackHistoryPopup"
-                    AllowsTransparency="True"
-                    Placement="Bottom"
-                    PlacementTarget="{Binding ElementName=BackButton}"
-                    StaysOpen="False">
-                    <Border Style="{StaticResource ModernPopupBorderStyle}">
-                        <ListBox
-                            x:Name="BackHistoryList"
-                            Width="540"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            FontSize=" 18"
-                            ItemContainerStyle="{StaticResource ModernHistoryItemStyle}"
-                            ItemsSource="{Binding Explorer.BackHistory}"
-                            PreviewMouseLeftButtonUp="BackHistoryList_PreviewMouseLeftButtonUp" />
-                    </Border>
-                </Popup>
+
+
 
 
                 <Button
                     x:Name="ForwardButton"
                     Grid.Column="1"
+                    Classes="NavigateButton"
+
                     Command="{Binding Explorer.ForwardCommand}"
                     DockPanel.Dock="Left"
                     IsEnabled="{Binding Explorer.CanGoForward}"
-                    MouseRightButtonUp="ForwardButton_MouseRightButtonUp"
-                    Style="{StaticResource NavigateButton}"
-                    ToolTip="{Binding Services.Localize.LocalizeAddressBar.Forward}"
-                    Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-
+                    x:DataType="t_vm:FileViewModelAvalonia"
+                    ToolTip.Tip="{Binding Services.Localize.LocalizeAddressBar.Forward}"
+                    >
                     <TextBlock
                         Margin="0,0,0,0"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
-                        Style="{StaticResource NavigateButtonText}"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        Classes="NavigateButtonText"
                         Text="&#xe5c8;" />
-
+                    <Button.Flyout>
+                        <!-- Placement を Bottom に指定することで、ボタンの真下に自動配置されます -->
+                        <Flyout Placement="Bottom">
+                            <!--
+                            Popupの中にあった Border と ListBox をそのままここに配置します。
+                            ※Flyout自身が標準で背景や枠線を持っているため、
+                            もし二重に枠線が出てしまう場合は Border を削除して ListBox だけにしてください。
+                            -->
+                            <Border Classes="ModernPopupBorderStyle">
+                                <ListBox
+                                    x:Name="ForwardHistoryList"
+                                    Width="540"
+                                    Background="Transparent"
+                                    BorderThickness="0"
+                                    FontSize="18"
+                                    Classes="ModernHistoryItemStyle"
+                                    ItemsSource="{Binding Explorer.ForwardHistory}"  />
+                            </Border>
+                        </Flyout>
+                    </Button.Flyout>
                 </Button>
 
 
-                <Popup
-                    x:Name="ForwardHistoryPopup"
-                    AllowsTransparency="True"
-                    Placement="Bottom"
-                    PlacementTarget="{Binding ElementName=ForwardButton}"
-                    StaysOpen="False">
-                    <Border Style="{StaticResource ModernPopupBorderStyle}">
-                        <ListBox
-                            x:Name="ForwardHistoryList"
-                            Width="540"
-                            Background="Transparent"
-                            BorderThickness="0"
-                            FontSize=" 18"
-                            ItemContainerStyle="{StaticResource ModernHistoryItemStyle}"
-                            ItemsSource="{Binding Explorer.ForwardHistory}"
-                            PreviewMouseLeftButtonUp="ForwardHistoryList_PreviewMouseLeftButtonUp" />
-                    </Border>
-                </Popup>
-
-
-                <local:AddressBarCtrl
+                <uc:AddressBarCtrl
                     x:Name="AddressBar"
                     Grid.Column="2"
                     HorizontalAlignment="Stretch"
@@ -242,7 +610,8 @@
                     SearchStart="AddressBar_SearchStart"
                     ViewColor="{Binding Services.ViewColor}" />
 
-                <Grid Grid.Column="3" Visibility="{Binding IsChecked, ElementName=ButtonFilter, Converter={StaticResource BooleanToVisibilityConverter}}">
+
+                <Grid Grid.Column="3" IsVisible="{Binding IsChecked, ElementName=ButtonFilter}">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="auto" />
                         <ColumnDefinition Width="auto" />
@@ -250,22 +619,7 @@
                         <ColumnDefinition Width="auto" />
 
                     </Grid.ColumnDefinitions>
-                    <!--<syncfusion:SfTextBoxExt
-                    x:Name="TextBoxFilter"
-                    Grid.Column="0"
-                    Width="200"
-                    MinWidth="2"
-                    Padding="6,3"
-                    HorizontalAlignment="Right"
-                    VerticalAlignment="Center"
-                    Background="Transparent"
-                    DockPanel.Dock="Right"
-                    FontSize="18"
-                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
-                    GotFocus="TextBoxFilter_GotFocus"
-                    Text="{Binding Explorer.FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                    TextAlignment="Left"
-                    Watermark="{Binding Services.Localize.LocalizeAddressBar.Filter}" />-->
+
                     <TextBox
                         x:Name="TextBoxFilter"
                         Grid.Column="0"
@@ -278,7 +632,6 @@
                         DockPanel.Dock="Right"
                         FontSize="18"
                         Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
-                        GotFocus="TextBoxFilter_GotFocus"
                         Text="{Binding Explorer.FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                         TextAlignment="Left"
                         />
@@ -291,8 +644,8 @@
                         Content="&#xf750;"
                         FontFamily="{StaticResource MaterialSymbols}"
                         FontSize="24"
-                        Style="{StaticResource FlatToggleButtonStyle}"
-                        ToolTip="{Binding Services.Localize.LocalizeAddressBar.Regex}" />
+                        Classes="FlatToggleButtonStyle"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeAddressBar.Regex}" />
                     <ToggleButton
                         Grid.Column="2"
                         Margin="4,0"
@@ -303,41 +656,57 @@
                         FontFamily="{StaticResource MaterialSymbols}"
                         FontSize="24"
                         IsChecked="{Binding Explorer.IncludeFolder, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                        Style="{StaticResource FlatToggleButtonStyle}"
-                        ToolTip="{Binding Services.Localize.LocalizeAddressBar.IsFolder}" />
+                        Classes="FlatToggleButtonStyle"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeAddressBar.IsFolder}" />
                 </Grid>
 
 
 
 
-                <!--
+
                 <TextBox
-                x:Name="TextBoxFind"
-                Width="200"
-                MinWidth="200"
-                HorizontalAlignment="Right"
-                VerticalAlignment="Center"
-                DockPanel.Dock="Right"
-                FontSize="18"
-                Text="{Binding Explorer.FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                TextAlignment="Left" />
-                -->
+                    Grid.Column="4"
+                    x:Name="TextBoxFind"
+                    Width="200"
+                    MinWidth="200"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Center"
+                    DockPanel.Dock="Right"
+                    FontSize="18"
+                    Text="{Binding Explorer.FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    TextAlignment="Left" >
+
+                    <TextBox.Styles>
+
+                        <!-- 1. クラス「dir」を付与する定義（変更なし） -->
+                        <Style Selector="TextBox" x:DataType="avm:AvaloniaFileItemViewModel">
+                            <Setter Property="Foreground" Value="red" />
+                        </Style>
+                    </TextBox.Styles>
+
+
+                </TextBox>
+
 
                 <Button
+                    Grid.Column="5"
+
                     x:Name="ButtonFind"
                     HorizontalAlignment="Right"
                     Command="{Binding Explorer.CommandExec.FileFind}"
                     CommandParameter="{Binding Explorer}"
                     DockPanel.Dock="Right"
-                    Style="{StaticResource NavigateButton}"
-                    ToolTip="検索"
-                    Visibility="Collapsed">
+                    Classes="NavigateButton"
+                    x:DataType="t_vm:FileViewModelAvalonia"
+                    ToolTip.Tip="検索"
+                    >
 
                     <TextBlock
                         Margin="0,0,0,0"
                         HorizontalAlignment="Center"
                         VerticalAlignment="Center"
-                        Style="{StaticResource NavigateButtonText}"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        Classes="NavigateButtonText"
                         Text="&#xe8b6;"
                         TextWrapping="WrapWithOverflow" />
                 </Button>
@@ -354,8 +723,8 @@
                     FontFamily="{StaticResource MaterialSymbols}"
                     FontSize="24"
                     FontWeight="Thin"
-                    Style="{StaticResource FlatToggleButtonStyle}"
-                    ToolTip="{Binding Services.Localize.LocalizeAddressBar.Filter}" />
+                    Classes="FlatToggleButtonStyle"
+                    ToolTip.Tip="{Binding Services.Localize.LocalizeAddressBar.Filter}" />
 
             </Grid>
             <Grid Grid.Row="1">
@@ -373,14 +742,16 @@
                         MinHeight="24"
                         Command="{Binding Explorer.CommandExec.CreateNewFolder}"
                         CommandParameter="{Binding Explorer}"
-                        Style="{StaticResource NavigateButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.CreateNewFolder}"
-                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                        Classes="NavigateButton"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.CreateNewFolder}"
+                        IsVisible="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
 
                         <TextBlock
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateButtonText"
                             Text="&#xe2cc;" />
 
                     </Button>
@@ -389,20 +760,22 @@
                         FontSize="24"
                         Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
                         Text="｜"
-                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                        IsVisible="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
                     <Button
                         x:Name="ButtonCopyToClip"
                         MinWidth="24"
                         MinHeight="24"
                         Command="{Binding Explorer.CommandExec.ClipboardCopy}"
                         CommandParameter="{Binding Explorer}"
-                        Style="{StaticResource NavigateButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ClipCopy}">
+                        Classes="NavigateButton"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.ClipCopy}">
                         <TextBlock
                             Margin="0,0,0,0"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateButtonText"
                             Text="&#xe14d;" />
                     </Button>
 
@@ -412,13 +785,15 @@
                         MinHeight="24"
                         Command="{Binding Explorer.CommandExec.ClipboardCut}"
                         CommandParameter="{Binding Explorer}"
-                        Style="{StaticResource NavigateButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ClipCut}">
+                        Classes="NavigateButton"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.ClipCut}">
                         <TextBlock
                             Margin="0,0,0,0"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateButtonText"
                             Text="&#xe14e;" />
                     </Button>
 
@@ -428,13 +803,15 @@
                         MinHeight="24"
                         Command="{Binding Explorer.CommandExec.ClipboardPaste}"
                         CommandParameter="{Binding Explorer}"
-                        Style="{StaticResource NavigateButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ClipPaste}">
+                        Classes="NavigateButton"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.ClipPaste}">
                         <TextBlock
                             Margin="0,0,0,0"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateButtonText"
                             Text="&#xe14f;" />
                     </Button>
 
@@ -451,14 +828,16 @@
                         MinHeight="24"
                         Command="{Binding Explorer.CommandExec.FileCopy}"
                         CommandParameter="{Binding Explorer}"
-                        Style="{StaticResource NavigateButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.FileCopy}">
+                        Classes="NavigateButton"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.FileCopy}">
                         <TextBlock
                             Margin="0,0,0,0"
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
                             FontWeight="Thin"
-                            Style="{StaticResource NavigateButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateButtonText"
                             Text="&#xe173;" />
                     </Button>
 
@@ -469,22 +848,25 @@
                         MinHeight="24"
                         Command="{Binding Explorer.CommandExec.FileMove}"
                         CommandParameter="{Binding Explorer}"
-                        Style="{StaticResource NavigateButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.FileMove}">
+                        Classes="NavigateButton"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.FileMove}">
                         <Grid>
                             <TextBlock
                                 Margin="0,0,0,0"
                                 HorizontalAlignment="Left"
                                 VerticalAlignment="Center"
                                 FontSize="24"
-                                Style="{StaticResource NavigateButtonText}"
+                                x:DataType="t_vm:FileViewModelAvalonia"
+                                Classes="NavigateButtonText"
                                 Text="&#xe66d;" />
                             <TextBlock
                                 Margin="10,0,0,0"
                                 HorizontalAlignment="Center"
                                 VerticalAlignment="Center"
                                 FontSize="24"
-                                Style="{StaticResource NavigateButtonText}"
+                                x:DataType="t_vm:FileViewModelAvalonia"
+                                Classes="NavigateButtonText"
                                 Text="&#xe5c8;" />
                         </Grid>
 
@@ -498,13 +880,15 @@
                         MinHeight="24"
                         Command="{Binding Explorer.CommandExec.Rename}"
                         CommandParameter="{Binding Explorer}"
-                        Style="{StaticResource NavigateButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.FileRename}">
+                        Classes="NavigateButton"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.FileRename}">
 
                         <TextBlock
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateButtonText"
                             Text="&#xf73c;" />
 
 
@@ -522,13 +906,15 @@
                         MinHeight="24"
                         Command="{Binding Explorer.CommandExec.FileToTrashe}"
                         CommandParameter="{Binding Explorer}"
-                        Style="{StaticResource NavigateButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.FileToTrash}">
+                        Classes="NavigateButton"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.FileToTrash}">
 
                         <TextBlock
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateButtonText"
                             Text="&#xe872;" />
 
 
@@ -541,47 +927,50 @@
                         MinHeight="24"
                         Command="{Binding Explorer.CommandExec.FileDelete}"
                         CommandParameter="{Binding Explorer}"
-                        Style="{StaticResource NavigateButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.FileDelete}">
+                        Classes="NavigateButton"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.FileDelete}">
 
                         <TextBlock
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateButtonText"
                             Text="&#xe92b;" />
 
 
 
                     </Button>
 
-                    <!--<TextBlock
-                    VerticalAlignment="Center"
-                    FontSize="32"
-                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
-                    Text="｜"
-                    Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
-
-
-                    -->
-                    <!--  プロパティ設定  -->
-                    <!--
-                    <Button
-                    x:Name="ButtonProperty"
-                    MinWidth="24"
-                    MinHeight="24"
-                    Command="{Binding Explorer.CommandExec.SetProperty}"
-                    CommandParameter="{Binding Explorer}"
-                    Style="{StaticResource NavigateButton}"
-                    ToolTip="{Binding Services.Localize.LocalizeToolBar.FileProperty}"
-                    Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-
                     <TextBlock
-                    HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Style="{StaticResource NavigateButtonText}"
-                    Text="&#xf741;" />
+                        VerticalAlignment="Center"
+                        FontSize="32"
+                        Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
+                        Text="｜"
+                        IsVisible="{Binding IsSearch}" />
 
-                    </Button>-->
+
+
+
+                    <Button
+                        x:Name="ButtonProperty"
+                        MinWidth="24"
+                        MinHeight="24"
+                        Command="{Binding Explorer.CommandExec.SetProperty}"
+                        CommandParameter="{Binding Explorer}"
+                        Classes="NavigateButton"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.FileProperty}"
+                        IsVisible="{Binding IsSearch}">
+
+                        <TextBlock
+                            HorizontalAlignment="Center"
+                            VerticalAlignment="Center"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateButtonText"
+                            Text="&#xf741;" />
+
+                    </Button>
 
 
 
@@ -591,23 +980,28 @@
                         FontSize="32"
                         Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
                         Text="｜"
-                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                        IsVisible="{Binding IsSearch}"
 
-                    <!--  新しいタブ  -->
+                        />
+
+
                     <Button
                         x:Name="ButtonNewTab"
                         MinWidth="24"
                         MinHeight="24"
                         Command="{Binding Explorer.CommandExec.NewTab}"
                         CommandParameter="{Binding Explorer}"
-                        Style="{StaticResource NavigateButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.AddNewTab}"
-                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                        Classes="NavigateButton"
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.AddNewTab}"
+                        IsVisible="{Binding IsSearch}"
+                        >
 
                         <TextBlock
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateButtonText"
                             Text="&#xf741;" />
 
                     </Button>
@@ -618,22 +1012,27 @@
                         FontSize="32"
                         Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
                         Text="｜"
-                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                        IsVisible="{Binding IsSearch}"
+                        />
 
                     <RadioButton
                         x:Name="BtnDetailStyle"
                         MinWidth="24"
                         MinHeight="24"
-                        Click="BtnDetailStyle_Click"
                         GroupName="ListStyle"
-                        Style="{StaticResource NavigateRadioButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ViewDetail}"
-                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        Classes="NavigateRadioButton"
+
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.ViewDetail}"
+                        IsVisible="{Binding IsSearch}">
 
                         <TextBlock
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateRadioButtonText}"
+
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateRadioButtonText"
                             Text="&#xe9b9;" />
 
                     </RadioButton>
@@ -643,18 +1042,17 @@
                         x:Name="BtnListThumbnail"
                         MinWidth="24"
                         MinHeight="24"
-                        Click="BtnListThumbnail_Click"
+
                         GroupName="ListStyle"
-                        Style="{StaticResource NavigateRadioButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ViewThumbnail}">
-
-
-
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        Classes="NavigateRadioButton"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.ViewThumbnail}">
 
                         <TextBlock
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateRadioButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateRadioButtonText"
                             Text="&#xf383;" />
 
                     </RadioButton>
@@ -664,18 +1062,16 @@
                         x:Name="BtnListList"
                         MinWidth="24"
                         MinHeight="24"
-                        Click="BtnListList_Click"
                         GroupName="ListStyle"
-                        Style="{StaticResource NavigateRadioButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ViewIcon}">
-
-
-
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        Classes="NavigateRadioButton"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.ViewIcon}">
 
                         <TextBlock
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateRadioButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateRadioButtonText"
                             Text="&#xeb75;" />
 
                     </RadioButton>
@@ -685,10 +1081,10 @@
                         x:Name="btnListContent"
                         MinWidth="24"
                         MinHeight="24"
-                        Click="BtnListContent_Click"
                         GroupName="ListStyle"
-                        Style="{StaticResource NavigateRadioButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.ViewContent}">
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        Classes="NavigateRadioButton"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.ViewContent}">
 
 
 
@@ -696,7 +1092,8 @@
                         <TextBlock
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateRadioButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateRadioButtonText"
                             Text="&#xe99c;" />
 
                     </RadioButton>
@@ -707,7 +1104,7 @@
                         FontSize="32"
                         Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
                         Text="｜"
-                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                        IsVisible="{Binding IsSearch}"/>
 
                     <ToggleButton
                         x:Name="ButtonIsFolderTree"
@@ -717,22 +1114,24 @@
                         FontFamily="{StaticResource MaterialSymbols}"
                         FontSize="24"
                         IsChecked="{Binding IsFolderTree}"
-                        Style="{StaticResource FlatToggleButtonStyle}"
-                        ToolTip="{Binding Services.Localize.LocalizeAddressBar.Regex}" />
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        Classes="NavigateButton"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeAddressBar.Regex}" />
 
                     <Button
                         x:Name="ButtonRefresh"
                         MinWidth="24"
                         MinHeight="24"
-                        Click="ButtonRefresh_Click"
-                        Style="{StaticResource NavigateButton}"
-                        ToolTip="{Binding Services.Localize.LocalizeToolBar.Refresh}"
-                        Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                        x:DataType="t_vm:FileViewModelAvalonia"
+                        Classes="NavigateButton"
+                        ToolTip.Tip="{Binding Services.Localize.LocalizeToolBar.Refresh}"
+                        IsVisible="{Binding IsSearch}">
 
                         <TextBlock
                             HorizontalAlignment="Center"
                             VerticalAlignment="Center"
-                            Style="{StaticResource NavigateButtonText}"
+                            x:DataType="t_vm:FileViewModelAvalonia"
+                            Classes="NavigateButtonText"
                             Text="&#xe5d5;" />
 
                     </Button>
@@ -746,86 +1145,78 @@
             </Grid>
 
 
-
-            <ToolBar
+            <CommandBar
                 x:Name="DriveToolbar"
+
                 Grid.Row="2"
                 Background="{Binding Services.ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}"
-                ItemTemplate="{StaticResource DriveButtonTemplate}"
-                ItemsSource="{Binding DriveList}"
-                Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                IsVisible="{Binding !IsSearch}"
+                x:CompileBindings="False">
 
-            <Grid Grid.Row="3">
+                <!-- 💡 PrimaryCommands ではなく Content に ItemsControl を配置します -->
+                <CommandBar.Content>
+                    <ItemsControl
+                        x:DataType="t_vm:FileViewModelAvalonia"
 
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition MinWidth="0">
+                        ItemsSource="{Binding DriveList}"
+                        ItemTemplate="{StaticResource DriveButtonTemplate}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </CommandBar.Content>
+            </CommandBar>
+            <!--            <ToolBar
+            x:Name="DriveToolbar"
+            Grid.Row="2"
+            Background="{Binding Services.ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}"
+            ItemTemplate="{StaticResource DriveButtonTemplate}"
+            ItemsSource="{Binding DriveList}"
+            Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
 
-                        <ColumnDefinition.Style>
-                            <Style TargetType="ColumnDefinition">
-                                <Setter Property="Width" Value="{Binding Explorer.FolderTreeWidth, Mode=TwoWay, Converter={StaticResource GridLengthConverter}}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsSearch}" Value="True">
-                                        <Setter Property="Width" Value="0" />
-                                        <Setter Property="MinWidth" Value="0" />
-                                    </DataTrigger>
+            -->
+            <!--      <ItemsControl
+            x:Name="DriveToolbar"
+            Grid.Row="2"
+            Background="{Binding Services.ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}"
+            ItemsSource="{Binding DriveList}"
+            ItemTemplate="{StaticResource DriveButtonTemplate}"
 
-                                    <DataTrigger Binding="{Binding IsFolderTree}" Value="False">
-                                        <Setter Property="Width" Value="0" />
-                                        <Setter Property="MinWidth" Value="0" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </ColumnDefinition.Style>
+            IsVisible="{Binding !IsSearch}">
 
-                    </ColumnDefinition>
-                    <ColumnDefinition>
-
-                        <ColumnDefinition.Style>
-                            <Style TargetType="ColumnDefinition">
-                                <Setter Property="Width" Value="20" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsSearch}" Value="True">
-                                        <Setter Property="Width" Value="0" />
-                                        <Setter Property="MinWidth" Value="0" />
-                                    </DataTrigger>
-                                    <DataTrigger Binding="{Binding IsFolderTree}" Value="False">
-                                        <Setter Property="Width" Value="0" />
-                                        <Setter Property="MinWidth" Value="0" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </ColumnDefinition.Style>
-
-                    </ColumnDefinition>
+            --><!-- 💡ポイント2: 内部の配置方法を WrapPanel に指定し、ドライブが多くなっても自動で折り返すようにします --><!--
+            <ItemsControl.ItemsPanel>
+            <ItemsPanelTemplate>
+            <WrapPanel Orientation="Horizontal" VerticalAlignment="Center" Margin="5,2" />
+            </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            </ItemsControl>-->
 
 
-                    <ColumnDefinition Width="*" />
-                </Grid.ColumnDefinitions>
+            <SplitView
+                IsPaneOpen="{Binding IsTreeVisible}"
+                Grid.Row="3"
+                DisplayMode="Inline"
+                OpenPaneLength="{Binding Explorer.FolderTreeWidth, Mode=TwoWay}"
+                x:CompileBindings="False">
 
-                <local:FolderTreeView Grid.Column="0" Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                <!-- 💡 1. 左側に表示するフォルダーツリー（Pane） -->
+                <SplitView.Pane>
+                    <!-- ここにTreeViewなどのフォルダーツリーコントロールを配置 -->
 
-                <GridSplitter
-                    Grid.Column="1"
-                    HorizontalAlignment="Stretch"
-                    Style="{StaticResource HeadderGridSplitter}"
-                    Visibility="{Binding IsSearch, Converter={StaticResource InverseBooleanToVisibilityConverter}}" />
+                    <!--
+                    <local:FolderTreeView Grid.Column="0" IsVisible="{Binding IsSearch}" />
 
+                    -->
+                    <TextBlock Text="hoge"/>
 
-                <Grid Grid.Column="2">
+                </SplitView.Pane>
 
-                    <Grid.Style>
-                        <Style TargetType="Grid">
-                            <Setter Property="Grid.Column" Value="3" />
-                            <Style.Triggers>
-
-                                <DataTrigger Binding="{Binding IsFolderTree}" Value="true">
-                                    <Setter Property="Grid.Column" Value="1" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </Grid.Style>
-
-
+                <!-- 💡 2. 右側に表示するメインのファイル一覧（Content） -->
+                <!-- Width="*" のカラムに相当します -->
+                <Grid>
                     <Grid.RowDefinitions>
 
                         <RowDefinition Height="30" />
@@ -834,35 +1225,37 @@
 
                     <ScrollViewer
                         x:Name="HeaderScroll"
+                        HorizontalAlignment="Stretch"
                         Grid.Row="0"
                         HorizontalScrollBarVisibility="Hidden"
                         VerticalScrollBarVisibility="Disabled">
-                        <!--  ★ ヘッダー行（ListView の GridViewHeaderRowPresenter の代わり）  -->
+                        <!--★ ヘッダー行（ListView の GridViewHeaderRowPresenter の代わり）-->
                         <Grid
                             x:Name="HeaderGrid"
                             Margin="10,0,0,0"
                             Background="{Binding Services.ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}">
 
-
                             <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="{Binding ElementName=LV, Path=DataContext.NameColumnWidth ,Converter={StaticResource GridLengthConverter}, Mode=TwoWay}" MinWidth="160" />
                                 <ColumnDefinition Width="8" />
-                                <ColumnDefinition Width="{Binding ElementName=LV, Path=DataContext.NameColumnWidth, Converter={StaticResource GridLengthConverter}, Mode=TwoWay}" MinWidth="160" />
+                                <ColumnDefinition Width="{Binding ElementName=LV, Path=DataContext.DateColumnWidth, Converter={StaticResource GridLengthConverter},  Mode=TwoWay}" MinWidth="80" />
+                                <ColumnDefinition Width="8" />
 
-
-                                <ColumnDefinition Width="{Binding ElementName=LV, Path=DataContext.DateColumnWidth, Converter={StaticResource GridLengthConverter}, Mode=TwoWay}" MinWidth="80" />
                                 <ColumnDefinition Width="{Binding ElementName=LV, Path=DataContext.TypeColumnWidth, Converter={StaticResource GridLengthConverter}, Mode=TwoWay}" MinWidth="80" />
+                                <ColumnDefinition Width="8" />
                                 <ColumnDefinition Width="{Binding ElementName=LV, Path=DataContext.SizeColumnWidth, Converter={StaticResource GridLengthConverter}, Mode=TwoWay}" MinWidth="80" />
-                                <ColumnDefinition x:Name="HeaderSpacer" Width="0" />
+                                <ColumnDefinition Width="8" />
+                                <ColumnDefinition Width="0" />
                             </Grid.ColumnDefinitions>
-
-
-                            <!--  名前列  -->
+                            <!--名前列-->
                             <Button
-                                Grid.Column="1"
+                                Grid.Column="0"
                                 Command="{Binding Explorer.SortCommand}"
                                 CommandParameter="FileName"
                                 Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
-                                Style="{StaticResource HeaderButtonStyle}">
+                                x:DataType="t_vm:FileViewModelAvalonia"
+                                Classes="HeaderButtonStyle"
+                                >
 
                                 <Button.Content>
                                     <Grid>
@@ -879,10 +1272,10 @@
                                                 <TextBlock.Text>
 
                                                     <MultiBinding Converter="{StaticResource SortArrowConverter}" ConverterParameter="FileName">
-                                                        <!--  固定のヘッダー文字  -->
+                                                        <!--固定のヘッダー文字-->
                                                         <Binding Source="" />
 
-                                                        <!--  ソート状態  -->
+                                                        <!--ソート状態-->
                                                         <Binding Path="Explorer.SortColumn" />
                                                         <Binding Path="Explorer.SortAscending" />
                                                     </MultiBinding>
@@ -896,17 +1289,10 @@
                             </Button>
 
 
+                            <GridSplitter Grid.Column="1" Background="LightGray" ResizeBehavior="PreviousAndNext" />
 
-                            <GridSplitter Grid.Column="1" Style="{StaticResource HeadderGridSplitter}">
-                                <i:Interaction.Behaviors>
-                                    <bv:GridSplitterDragDeltaBehavior
-                                        ColumnIndex="1"
-                                        DragDeltaCommand="{Binding UpdateColumnWidthCommand}"
-                                        TargetListBox="{Binding ElementName=LV}" />
-                                </i:Interaction.Behaviors>
-                            </GridSplitter>
 
-                            <!--  更新日時  -->
+                            <!--更新日時-->
 
 
                             <Button
@@ -914,7 +1300,8 @@
                                 Command="{Binding Explorer.SortCommand}"
                                 CommandParameter="LastWriteDateTime"
                                 Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
-                                Style="{StaticResource HeaderButtonStyle}">
+                                x:DataType="t_vm:FileViewModelAvalonia"
+                                Classes="HeaderButtonStyle" >
                                 <Button.Content>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
@@ -930,10 +1317,10 @@
                                                 <TextBlock.Text>
 
                                                     <MultiBinding Converter="{StaticResource SortArrowConverter}" ConverterParameter="LastWriteDateTime">
-                                                        <!--  固定のヘッダー文字  -->
+                                                        <!--固定のヘッダー文字-->
                                                         <Binding Source="" />
 
-                                                        <!--  ソート状態  -->
+                                                        <!--ソート状態-->
                                                         <Binding Path="Explorer.SortColumn" />
                                                         <Binding Path="Explorer.SortAscending" />
                                                     </MultiBinding>
@@ -946,25 +1333,19 @@
                                 </Button.Content>
                             </Button>
 
-                            <GridSplitter Grid.Column="2" Style="{StaticResource HeadderGridSplitter}">
+                            <GridSplitter Grid.Column="3" Background="LightGray" ResizeBehavior="PreviousAndNext" />
 
-                                <i:Interaction.Behaviors>
-                                    <bv:GridSplitterDragDeltaBehavior
-                                        ColumnIndex="2"
-                                        DragDeltaCommand="{Binding UpdateColumnWidthCommand}"
-                                        TargetListBox="{Binding ElementName=LV}" />
-                                </i:Interaction.Behaviors>
-                            </GridSplitter>
-
-                            <!--  種類  -->
+                            <!--種類-->
 
                             <Button
-                                Grid.Column="3"
+                                Grid.Column="4"
                                 VerticalAlignment="Center"
                                 Command="{Binding Explorer.SortCommand}"
                                 CommandParameter="FileType"
                                 Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
-                                Style="{StaticResource HeaderButtonStyle}">
+                                x:DataType="t_vm:FileViewModelAvalonia"
+                                Classes="HeaderButtonStyle" >
+
                                 <Button.Content>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
@@ -980,10 +1361,10 @@
                                                 <TextBlock.Text>
 
                                                     <MultiBinding Converter="{StaticResource SortArrowConverter}" ConverterParameter="FileType">
-                                                        <!--  固定のヘッダー文字  -->
+                                                        <!--固定のヘッダー文字-->
                                                         <Binding Source="" />
 
-                                                        <!--  ソート状態  -->
+                                                        <!--ソート状態-->
                                                         <Binding Path="Explorer.SortColumn" />
                                                         <Binding Path="Explorer.SortAscending" />
                                                     </MultiBinding>
@@ -996,26 +1377,20 @@
                                 </Button.Content>
                             </Button>
 
-                            <GridSplitter Grid.Column="3" Style="{StaticResource HeadderGridSplitter}">
 
-                                <i:Interaction.Behaviors>
-                                    <bv:GridSplitterDragDeltaBehavior
-                                        ColumnIndex="3"
-                                        DragDeltaCommand="{Binding UpdateColumnWidthCommand}"
-                                        TargetListBox="{Binding ElementName=LV}" />
-                                </i:Interaction.Behaviors>
-                            </GridSplitter>
+                            <GridSplitter Grid.Column="5" Background="LightGray" ResizeBehavior="PreviousAndNext" />
 
-                            <!--  サイズ  -->
+                            <!--サイズ-->
 
 
                             <Button
-                                Grid.Column="4"
+                                Grid.Column="6"
                                 VerticalAlignment="Center"
                                 Command="{Binding Explorer.SortCommand}"
                                 CommandParameter="FileSize"
                                 Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}"
-                                Style="{StaticResource HeaderButtonStyle}">
+                                x:DataType="t_vm:FileViewModelAvalonia"
+                                Classes="HeaderButtonStyle" >
                                 <Button.Content>
                                     <Grid>
                                         <Grid.ColumnDefinitions>
@@ -1031,10 +1406,10 @@
                                                 <TextBlock.Text>
 
                                                     <MultiBinding Converter="{StaticResource SortArrowConverter}" ConverterParameter="FileSize">
-                                                        <!--  固定のヘッダー文字  -->
+                                                        <!--固定のヘッダー文字-->
                                                         <Binding Source="" />
 
-                                                        <!--  ソート状態  -->
+                                                        <!--ソート状態-->
                                                         <Binding Path="Explorer.SortColumn" />
                                                         <Binding Path="Explorer.SortAscending" />
                                                     </MultiBinding>
@@ -1047,269 +1422,368 @@
                                 </Button.Content>
                             </Button>
 
-                            <GridSplitter Grid.Column="4" Style="{StaticResource HeadderGridSplitter}">
 
-                                <i:Interaction.Behaviors>
-                                    <bv:GridSplitterDragDeltaBehavior
-                                        ColumnIndex="4"
-                                        DragDeltaCommand="{Binding UpdateColumnWidthCommand}"
-                                        TargetListBox="{Binding ElementName=LV}" />
-                                    <!--  修正例  -->
-
-
-                                </i:Interaction.Behaviors>
-                            </GridSplitter>
+                            <GridSplitter Grid.Column="7" Background="LightGray" ResizeBehavior="PreviousAndNext" />
                         </Grid>
                     </ScrollViewer>
 
+
+                    <!--
+                                            DragDrop.AllowDrop="True"
+
+                    -->
                     <ListBox
                         x:Name="LV"
-                        Grid.Row="2"
+                        Grid.Row="1"
                         Padding="20,0,0,0"
-                        bv:TiltScrollBehavior.EnableTiltScroll="True"
-                        AllowDrop="True"
+
                         Background="Transparent"
                         FontSize="18"
                         GotFocus="LV_GotFocus"
-                        IsSynchronizedWithCurrentItem="False"
                         ItemsSource="{Binding Explorer.FileList}"
-                        PreviewDragOver="LV_PreviewDragOver"
-                        PreviewDrop="LV_PreviewDrop"
-                        PreviewMouseDown="LV_PreviewMouseDown"
-                        PreviewMouseMove="LV_PreviewMouseMove"
-                        PreviewMouseUp="LV_PreviewMouseUp"
-                        ScrollViewer.CanContentScroll="True"
-                        ScrollViewer.ScrollChanged="LV_ScrollChanged"
+                        PointerPressed="LV_Blank_PointerPressed"
+                        PointerMoved="LV_Blank_PointerMoved"
+                        PointerReleased="LV_Blank_PointerReleased"
+
+
+                        ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                        ScrollViewer.VerticalScrollBarVisibility="Auto"
                         SelectedIndex="{Binding Explorer.SelectedIndex, Mode=TwoWay}"
                         SelectedItem="{Binding Explorer.SelectedItem, Mode=TwoWay}"
                         SelectionChanged="LV_SelectionChanged"
-                        SelectionMode="Extended"
-                        VirtualizingPanel.IsVirtualizing="True"
-                        VirtualizingPanel.ScrollUnit="Item"
-                        VirtualizingPanel.VirtualizationMode="Recycling"
+                        
+                        
+                        SelectionMode="Multiple"
 
-                        >
-
-
-                        <ListBox.Style>
-                            <Style TargetType="{x:Type ListBox}">
-                                <!--  =======================================================  -->
-                                <!--  1. デフォルトの状態（例：詳細表示 Detail）  -->
-                                <!--  =======================================================  -->
-                                <Setter Property="ItemsPanel">
-                                    <Setter.Value>
-                                        <ItemsPanelTemplate>
-                                            <!--  詳細表示は標準の縦並び（仮想化が効く）  -->
-                                            <VirtualizingStackPanel Width="auto" HorizontalAlignment="Left" />
-                                        </ItemsPanelTemplate>
-                                    </Setter.Value>
-                                </Setter>
-                                <Setter Property="ItemTemplate" Value="{DynamicResource FileDetailTemplate}" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding Explorer.ListType.ViewType}" Value="Thumbnail">
-                                        <Setter Property="ItemsPanel">
-                                            <Setter.Value>
-                                                <ItemsPanelTemplate>
-                                                    <!--  詳細表示は標準の縦並び（仮想化が効く）  -->
-                                                    <vwp:VirtualizingWrapPanel />
-                                                </ItemsPanelTemplate>
-                                            </Setter.Value>
-                                        </Setter>
-                                        <Setter Property="ItemTemplate" Value="{DynamicResource FileThumbnailTemplate}" />
-                                    </DataTrigger>
-
-                                    <DataTrigger Binding="{Binding Explorer.ListType.ViewType}" Value="Icon">
-                                        <Setter Property="ItemsPanel">
-                                            <Setter.Value>
-                                                <ItemsPanelTemplate>
-                                                    <!--  詳細表示は標準の縦並び（仮想化が効く）  -->
-                                                    <vwp:VirtualizingWrapPanel />
-                                                </ItemsPanelTemplate>
-                                            </Setter.Value>
-                                        </Setter>
-                                        <Setter Property="ItemTemplate" Value="{DynamicResource FileLargeIconTemplate}" />
-                                    </DataTrigger>
-
-                                    <DataTrigger Binding="{Binding Explorer.ListType.ViewType}" Value="Content">
-                                        <Setter Property="ItemsPanel">
-                                            <Setter.Value>
-                                                <ItemsPanelTemplate>
-                                                    <!--  詳細表示は標準の縦並び（仮想化が効く）  -->
-                                                    <VirtualizingStackPanel Width="auto" HorizontalAlignment="Left" />
-                                                </ItemsPanelTemplate>
-                                            </Setter.Value>
-                                        </Setter>
-                                        <Setter Property="ItemTemplate" Value="{DynamicResource FileContantTemplate}" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </ListBox.Style>
+                        Tag="{Binding Explorer.ListType.ViewType}">
 
 
 
-                        <ListBox.ItemContainerStyle>
-                            <Style TargetType="ListBoxItem">
+                        <!-- 1. デフォルトの状態（例：Detail / Content 用のデフォルト設定） -->
+                        <ListBox.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <!-- AvaloniaのStackPanelはItemsPanel内では自動で仮想化されます -->
+                                <StackPanel Width="NaN" HorizontalAlignment="Left" Orientation="Vertical" />
+                            </ItemsPanelTemplate>
+                        </ListBox.ItemsPanel>
+                        <ListBox.ItemTemplate>
+                            <Binding Source="{StaticResource FileDetailTemplate}" />
+                        </ListBox.ItemTemplate>
 
+                        <!-- 2. トリガーの代わりとなる Styles 定義 -->
+                        <ListBox.Styles>
 
+                            <Style Selector="ListBoxItem" x:DataType="avm:AvaloniaFileItemViewModel">
+
+                                <!-- 💡 【追加】ListBoxItem 自体が持つ上下左右の余白をゼロにして、行間を完全に密着させます -->
+                                <Setter Property="Margin" Value="0" />
                                 <Setter Property="Padding" Value="0" />
-                                <Setter Property="bv:ListViewItemClickBehavior.EnableCheckToggle" Value="True" />
-                                <Setter Property="behavior:FileColorBehavior.AutoColor" Value="True" />
 
-
-                                <Setter Property="TextBlock.TextDecorations" Value="{Binding RelativeSource={RelativeSource Self}, Path=(TextBlock.TextDecorations)}" />
-
-
-                                <!--<Setter Property="Foreground" Value="{Binding ViewColor.View.File.Foreground, RelativeSource={RelativeSource AncestorType=UserControl}, Converter={StaticResource HexFileColorToColorConverter}}" />-->
-
-                                <!--<Setter Property="FontStyle" Value="Italic"/>-->
-
-                                <Setter Property="HorizontalContentAlignment" Value="Left" />
-
-                                <Setter Property="BorderBrush" Value="Transparent" />
-                                <Setter Property="BorderThickness" Value="0" />
-                                <Setter Property="IsSelected" Value="{Binding Model.IsChecked, Mode=TwoWay}" />
-
-                                <EventSetter Event="MouseDoubleClick" Handler="OnItemDoubleClick" />
-                                <EventSetter Event="PreviewMouseDown" Handler="ListBoxItem_PreviewMouseDown" />
-
-                                <EventSetter Event="KeyDown" Handler="OnItemKeyDown" />
-
-                                <EventSetter Event="MouseRightButtonUp" Handler="OnItemMouseRightButtonUp" />
-
-
-                                <EventSetter Event="PreviewMouseDown" Handler="OnPreviewMouseButtonDown" />
-
-                                <Style.Triggers>
-
-
-                                    <Trigger Property="IsSelected" Value="True">
-                                        <!--<Setter Property="Background" Value="{Binding ItemSelectedBackColor, Converter={StaticResource HexColorToBrushConverter}}" />
-
-                                        <Setter Property="Foreground" Value="{Binding ItemSelectedColor, Converter={StaticResource HexColorToBrushConverter}}" />-->
-                                        <Setter Property="BorderBrush" Value="Transparent" />
-                                        <Setter Property="BorderThickness" Value="0" />
-                                    </Trigger>
-
-
-
-                                </Style.Triggers>
-
-
+                                <!-- （以前登録した静的クラスハンドラーやイベント群など...） -->
                             </Style>
-                        </ListBox.ItemContainerStyle>
+
+                            <!-- 1. クラス「dir」を付与する定義（変更なし） -->
+                            <Style Selector="ListBoxItem" x:DataType="avm:AvaloniaFileItemViewModel">
+                                <Setter Property="Classes.dir" Value="{Binding IsDirectory}" />
+                            </Style>
+
+
+
+                            <!-- 1. クラス「ReadonlyFile」を付与する定義（変更なし） -->
+                            <Style Selector="ListBoxItem" x:DataType="avm:AvaloniaFileItemViewModel">
+                                <Setter Property="Classes.ReadonlyFile" Value="{Binding IsReadOnly}" />
+                            </Style>
+
+
+                            <!-- 1. クラス「Hidden」を付与する定義（変更なし） -->
+                            <Style Selector="ListBoxItem" x:DataType="avm:AvaloniaFileItemViewModel">
+                                <Setter Property="Classes.Hidden" Value="{Binding IsHidden}" />
+                            </Style>
+
+                            <!-- 1. クラス「SystemFile」を付与する定義（変更なし） -->
+                            <Style Selector="ListBoxItem" x:DataType="avm:AvaloniaFileItemViewModel">
+                                <Setter Property="Classes.SystemFile" Value="{Binding IsSystem}" />
+                            </Style>
+
+
+
+
+
+                            <!-- 💡 2. 通常時（選択されておらず、マウスオーバーもしていないフォルダ） -->
+                            <Style Selector="ListBoxItem:not(:selected):not(:pointerover).dir /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.Directory.Default.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.Directory.Default.Background}" />
+                            </Style>
+
+                            <!-- 💡 3. 選択時（マウスクリック等で選択されたフォルダ） -->
+                            <!-- 優先度負けを防ぐため、念のため通常の :selected 状態を明示します -->
+                            <Style Selector="ListBoxItem:selected.dir /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.Directory.Selected.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.Directory.Selected.Background}" />
+                            </Style>
+
+                            <!-- 💡 4. マウスオーバー時（ホバー中のフォルダ） -->
+                            <!-- 選択中かつホバー中、未選択かつホバー中の両方を一括で上書きします -->
+                            <Style Selector="ListBoxItem:pointerover.dir /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.Directory.MouseOver.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.Directory.MouseOver.Background}" />
+                            </Style>
+
+
+
+                            <!-- 💡 2. 通常時（選択されておらず、マウスオーバーもしていないフォルダ） -->
+                            <Style Selector="ListBoxItem:not(:selected):not(:pointerover).ReadonlyFile /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.ReadonlyFile.Default.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.ReadonlyFile.Default.Background}" />
+                            </Style>
+
+                            <!-- 💡 3. 選択時（マウスクリック等で選択されたフォルダ） -->
+                            <!-- 優先度負けを防ぐため、念のため通常の :selected 状態を明示します -->
+                            <Style Selector="ListBoxItem:selected.ReadonlyFile /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.ReadonlyFile.Selected.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.ReadonlyFile.Selected.Background}" />
+                            </Style>
+
+                            <!-- 💡 4. マウスオーバー時（ホバー中のフォルダ） -->
+                            <!-- 選択中かつホバー中、未選択かつホバー中の両方を一括で上書きします -->
+                            <Style Selector="ListBoxItem:pointerover.ReadonlyFile /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.ReadonlyFile.MouseOver.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.ReadonlyFile.MouseOver.Background}" />
+                            </Style>
+
+                            <!-- 💡 5. 選択された状態で、かつマウスオーバーされた場合のケア（必要に応じて） -->
+                            <Style Selector="ListBoxItem:selected:pointerover.ReadonlyFile /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.ReadonlyFile.MouseOver.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.ReadonlyFile.MouseOver.Background}" />
+                            </Style>
+
+
+
+                            <!-- 💡 2. 通常時（選択されておらず、マウスオーバーもしていないフォルダ） -->
+                            <Style Selector="ListBoxItem:not(:selected):not(:pointerover).Hidden /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.Hidden.Default.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.Hidden.Default.Background}" />
+                            </Style>
+
+                            <!-- 💡 3. 選択時（マウスクリック等で選択されたフォルダ） -->
+                            <!-- 優先度負けを防ぐため、念のため通常の :selected 状態を明示します -->
+                            <Style Selector="ListBoxItem:selected.Hidden /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.Hidden.Selected.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.Hidden.Selected.Background}" />
+                            </Style>
+
+                            <!-- 💡 4. マウスオーバー時（ホバー中のフォルダ） -->
+                            <!-- 選択中かつホバー中、未選択かつホバー中の両方を一括で上書きします -->
+                            <Style Selector="ListBoxItem:pointerover.Hidden /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.Hidden.MouseOver.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.Hidden.MouseOver.Background}" />
+                            </Style>
+
+                            <!-- 💡 5. 選択された状態で、かつマウスオーバーされた場合のケア（必要に応じて） -->
+                            <Style Selector="ListBoxItem:selected:pointerover.Hidden /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.Hidden.MouseOver.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.Hidden.MouseOver.Background}" />
+                            </Style>
+
+
+
+
+                            <!-- 💡 2. 通常時（選択されておらず、マウスオーバーもしていないフォルダ） -->
+                            <Style Selector="ListBoxItem:not(:selected):not(:pointerover).SystemFile /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.SystemFile.Default.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.SystemFile.Default.Background}" />
+                            </Style>
+
+                            <!-- 💡 3. 選択時（マウスクリック等で選択されたフォルダ） -->
+                            <!-- 優先度負けを防ぐため、念のため通常の :selected 状態を明示します -->
+                            <Style Selector="ListBoxItem:selected.SystemFile /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.SystemFile.Selected.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.SystemFile.Selected.Background}" />
+                            </Style>
+
+                            <!-- 💡 4. マウスオーバー時（ホバー中のフォルダ） -->
+                            <!-- 選択中かつホバー中、未選択かつホバー中の両方を一括で上書きします -->
+                            <Style Selector="ListBoxItem:pointerover.SystemFile /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.SystemFile.MouseOver.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.SystemFile.MouseOver.Background}" />
+                            </Style>
+
+                            <!-- 💡 5. 選択された状態で、かつマウスオーバーされた場合のケア（必要に応じて） -->
+                            <Style Selector="ListBoxItem:selected:pointerover.SystemFile /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.SystemFile.MouseOver.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.SystemFile.MouseOver.Background}" />
+                            </Style>
+
+
+                            <Style Selector="ListBoxItem:not(:selected):not(:pointerover):not(.dir):not(.system):not(.hidden):not(.readonly) /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.File.Default.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.File.Default.Background}" />
+                            </Style>
+
+                            <!-- 💡 どれでもない通常のファイル（選択時） -->
+                            <Style Selector="ListBoxItem:selected:not(.dir):not(.system):not(.hidden):not(.readonly) /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.File.Selected.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.File.Selected.Background}" />
+                            </Style>
+
+                            <!-- 💡 どれでもない通常のファイル（マウスオーバー時） -->
+                            <Style Selector="ListBoxItem:pointerover:not(.dir):not(.system):not(.hidden):not(.readonly) /template/ ContentPresenter">
+                                <Setter Property="Foreground" Value="{Binding ViewColor.File.MouseOver.Foreground}" />
+                                <Setter Property="Background" Value="{Binding ViewColor.File.MouseOver.Background}" />
+                            </Style>
+
+
+                            <!-- Thumbnail の場合 -->
+                            <Style Selector="ListBox[Tag=Thumbnail]">
+                                <Setter Property="ItemsPanel">
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </Setter>
+                                <Setter Property="ItemTemplate" Value="{StaticResource FileThumbnailTemplate}" />
+                            </Style>
+
+                            <!-- Icon の場合 -->
+                            <Style Selector="ListBox[Tag=Icon]">
+                                <Setter Property="ItemsPanel">
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel />
+                                    </ItemsPanelTemplate>
+                                </Setter>
+                                <Setter Property="ItemTemplate" Value="{StaticResource FileLargeIconTemplate}" />
+                            </Style>
+
+                            <!-- Content の場合 -->
+                            <Style Selector="ListBox[Tag=Content]">
+                                <Setter Property="ItemsPanel">
+                                    <ItemsPanelTemplate>
+                                        <StackPanel Width="NaN" HorizontalAlignment="Left" Orientation="Vertical" />
+                                    </ItemsPanelTemplate>
+                                </Setter>
+                                <Setter Property="ItemTemplate" Value="{StaticResource FileContantTemplate}" />
+                            </Style>
+                        </ListBox.Styles>
+
 
 
 
 
 
                     </ListBox>
-                    <Popup
-                        x:Name="ErrorPopup"
-                        AllowsTransparency="True"
-                        IsOpen="{Binding Explorer.IsPopupOpen}"
-                        Placement="Center"
-                        StaysOpen="True">
-                        <Border
-                            Padding="20"
-                            Background="#CC000000"
-                            CornerRadius="8">
-                            <StackPanel>
-                                <TextBlock
-                                    FontSize="16"
-                                    Foreground="White"
-                                    Text="{Binding Explorer.PopupMessage}"
-                                    TextWrapping="Wrap" />
 
-                                <ToggleButton
-                                    Width="80"
-                                    HorizontalAlignment="Center"
-                                    Content="閉じる"
-                                    IsChecked="{Binding IsOpen, ElementName=ErrorPopup, Mode=TwoWay}" />
-                            </StackPanel>
-                        </Border>
-                    </Popup>
-
-
+                    <Canvas x:Name="RubberBandCanvas" IsHitTestVisible="False" Background="Transparent">
+                        <Rectangle
+                            x:Name="RubberBandRect"
+                            Fill="{DynamicResource SystemControlHighlightAccentBrush}"
+                            Opacity="0.25"
+                            Stroke="{DynamicResource SystemControlHighlightAccentBrush}"
+                            StrokeThickness="1"
+                            IsVisible="False" />
+                    </Canvas>
                 </Grid>
 
-            </Grid>
-
-            <local:TokiFilerContext x:Name="TokiFilerMenu" />
-
-            <local:PropertyChangePopup x:Name="Property_ChangePopup" />
-
+            </SplitView>
 
             <StackPanel
                 Grid.Row="4"
                 Background="{Binding Services.ViewColor.View.Default.Background, Converter={StaticResource HexColorToBrushConverter}}"
                 Orientation="Horizontal">
-                <Label
-                    Content="&#xe873;"
+
+                <TextBlock
+                    Text="&#xe873;"
                     FontFamily="{StaticResource MaterialSymbols}"
                     FontSize="18"
+                    VerticalAlignment="Center"
                     Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
 
-                <Label
-                    Content="{Binding Explorer.CheckedItemCount}"
+                <TextBlock
+                    Text="{Binding Explorer.CheckedItemCount}"
                     FontSize="18"
-                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
-                <Label
-                    Content="/"
-                    FontSize="18"
+                    VerticalAlignment="Center"
                     Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
 
-                <Label
-                    Content="{Binding Explorer.CurrentItemCount}"
+                <TextBlock
+                    Text="/"
                     FontSize="18"
+                    VerticalAlignment="Center"
                     Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
 
-                <Label
-                    VerticalAlignment="Stretch"
-                    Content=" "
+                <TextBlock
+                    Text="{Binding Explorer.CurrentItemCount}"
                     FontSize="18"
+                    VerticalAlignment="Center"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+
+                <!-- 💡余白用のTextBlock（Marginで解決しても良いですが、元の構造を維持） -->
+                <TextBlock
+                    Text=" "
+                    FontSize="18"
+                    VerticalAlignment="Center"
                     Foreground="LightGray" />
-                <Separator Foreground="Gray" />
-                <Label
-                    Content="&#xe6b1;"
+
+                <!-- 💡WPFのSeparatorの代替（Borderで縦線を描画） -->
+                <Border
+                    Width="1"
+                    VerticalAlignment="Stretch"
+                    Margin="5,2"
+                    Background="Gray" />
+
+                <TextBlock
+                    Text="&#xe6b1;"
                     FontFamily="{StaticResource MaterialSymbols}"
                     FontSize="18"
+                    VerticalAlignment="Center"
                     Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
 
-                <Label
-                    Content="{Binding Explorer.FileList.SelectedSize, Converter={StaticResource FileSizeConverter}}"
+                <TextBlock
+                    Text="{Binding Explorer.FileList.SelectedSize, Converter={StaticResource FileSizeConverter}}"
                     FontSize="18"
-                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
-                <Label
-                    Content="/"
-                    FontSize="18"
-                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
-                <Label
-                    Content="{Binding Explorer.FileList.AllSize, Converter={StaticResource FileSizeConverter}}"
-                    FontSize="18"
+                    VerticalAlignment="Center"
                     Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
 
-
-                <Label
-                    Content=" "
+                <TextBlock
+                    Text="/"
                     FontSize="18"
+                    VerticalAlignment="Center"
                     Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
-                <Label
-                    Content="{Binding Explorer.CurrentFreeSpaceProgress}"
+
+                <TextBlock
+                    Text="{Binding Explorer.FileList.AllSize, Converter={StaticResource FileSizeConverter}}"
+                    FontSize="18"
+                    VerticalAlignment="Center"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+
+                <TextBlock
+                    Text=" "
+                    FontSize="18"
+                    VerticalAlignment="Center"
+                    Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
+
+                <TextBlock
+                    Text="{Binding Explorer.CurrentFreeSpaceProgress}"
                     FontFamily="{StaticResource MaterialSymbols}"
                     FontSize="18"
+                    VerticalAlignment="Center"
                     Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
-                <Label
-                    Content="{Binding Explorer.CurrentFreeSpace, Converter={StaticResource FileSizeConverter}}"
+
+                <TextBlock
+                    Text="{Binding Explorer.CurrentFreeSpace, Converter={StaticResource FileSizeConverter}}"
                     FontSize="18"
+                    VerticalAlignment="Center"
                     Foreground="{Binding Services.ViewColor.View.Default.Foreground, Converter={StaticResource HexColorToBrushConverter}}" />
 
             </StackPanel>
 
-
         </Grid>
 
-    </Border>
+        <!--<local:TokiFilerContext x:Name="TokiFilerMenu" />-->
 
+        <!--<local:PropertyChangePopup x:Name="Property_ChangePopup" />-->
+
+
+
+
+    </Border>
 
 
 
